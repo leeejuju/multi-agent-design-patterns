@@ -60,13 +60,13 @@ Organized by lessons, each with its own `src/` structure:
 
 ## Commit Conventions
 
-Follows Conventional Commits with **Chinese descriptions**:
+Follows Conventional Commits with **English descriptions**:
 - Format: `<type>(<scope>): <description>`
 - Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `style`, `perf`, `ci`, `build`
 - Examples:
-  - `feat(evermemos): 添加记忆存储功能`
-  - `docs(lesson1): 更新 README 中的 XXX 说明`
-  - `chore: 更新 pyproject.toml 依赖版本`
+  - `feat(evermemos): add memory storage feature`
+  - `docs(lesson1): update README about XXX`
+  - `chore: update pyproject.toml dependencies`
 
 ## Environment Configuration
 

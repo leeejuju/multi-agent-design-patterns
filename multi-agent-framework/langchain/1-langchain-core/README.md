@@ -1,6 +1,6 @@
 # LangChain-Core
 
-> `langchain-core` 是整个 LangChain 生态的基石，定义了所有组件交互的标准协议。
+> `langchain-core` 是整个 LangChain 所有的基本行为的抽象集合，定义了所有agent组件的调用标准协议，但是你让我用这玩意上工程，或许之前我会，但是现在就算了。
 > 所有其他包（`langchain`、`langgraph`、`langchain-openai` 等）都依赖它，但它不依赖任何人。
 
 ---
@@ -29,12 +29,12 @@ langchain-core          ← 最底层，定义所有基础抽象
 ```
 
 ---
-
+ 
 ## 🌟 核心模块说明
 
-### 1. `runnables` — 万物基础
+### 1. `runnables` — langchain的基础组件
 
-`Runnable` 是 LangChain 的绝对核心接口。所有组件（Model、Tool、Prompt、Parser）都实现了这个协议，提供统一的调用方式：
+`Runnable` 是 LangChain 的核心接口。所有组件（Model、Tool、Prompt、Parser）都实现了这个协议，应是为了设计层面（尤其是langchain作为一个架构的开发方面）提供统一的调用方式：
 
 | 方法 | 说明 |
 | :--- | :--- |

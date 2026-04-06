@@ -1,0 +1,7 @@
+{
+  "description": "Hourly auto-commit hook for tracking project changes",
+  "schedule": "0 * * * *",
+  "command": "uv run python .claude/hooks/auto_commit.py",
+  "enabled": true,
+  "timezone": "local"
+}

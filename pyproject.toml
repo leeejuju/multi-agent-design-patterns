@@ -8,6 +8,7 @@ dependencies = [
     "asyncpg>=0.31.0",
     "blob>=0.16",
     "deepagents>=0.4.3",
+    "docling>=2.85.0",
     "langchain>=1.2.0",
     "langchain-deepseek>=1.0.1",
     "langchain-google-genai>=4.2.0",
@@ -17,8 +18,8 @@ dependencies = [
     "langgraph-checkpoint-sqlite>=3.0.3",
     "pgvector>=0.4.2",
     "pydantic-settings>=2.11.0",
+    "pymupdf>=1.27.2.2",
     "sqlalchemy>=2.0.46",
-    "torch>=2.10.0",
 ]
 
 [tool.uv.workspace]

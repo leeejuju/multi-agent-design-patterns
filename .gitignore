@@ -17,6 +17,9 @@ pip-wheel-metadata/
 .idea/
 *.swp
 
+# Claude Code local settings
+.claude/settings.local.json
+
 # Logs and temp files
 *.log
 *.tmp

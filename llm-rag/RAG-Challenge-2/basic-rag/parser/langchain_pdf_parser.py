@@ -1,69 +1,67 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
-import re
-from dataclasses import dataclass
-from pathlib import Path
 
-DEFAULT_CHUNK_SIZE = 1000
-DEFAULT_CHUNK_OVERLAP = 200
-TOKEN_PATTERN = re.compile(r"[\u4e00-\u9fff]|[A-Za-z0-9_]+")
-
-
-@dataclass(frozen=True, slots=True)
-class ChunkConfig:
-    chunk_size: int = DEFAULT_CHUNK_SIZE
-    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
-
-    def __post_init__(self) -> None:
-        if self.chunk_size <= 0:
-            raise ValueError("chunk_size 必须大于 0。")
-        if self.chunk_overlap < 0:
-            raise ValueError("chunk_overlap 必须大于或等于 0。")
-        if self.chunk_overlap >= self.chunk_size:
-            raise ValueError("chunk_overlap 必须小于 chunk_size。")
+from parser_common import (
+    ChunkConfig,
+    ChunkSlice,
+    PdfDocumentData,
+    build_chunk_record,
+    compose_document,
+    extract_document_metadata,
+    make_doc_id,
+    resolve_pdf_path,
+    save_jsonl,
+)
 
 
 class LangChainPdfParser:
+    parser_name = "langchain_pymupdf_recursive"
+    label_prefix = "langchain_recursive"
+
     def __init__(self, chunk_config: ChunkConfig | None = None) -> None:
         self.chunk_config = chunk_config or ChunkConfig()
 
-    def load_documents(self, pdf_path: str | Path) -> tuple[Path, list]:
-        source = Path(pdf_path).expanduser().resolve()
-        if source.suffix.lower() != ".pdf":
-            raise ValueError(f"仅支持 PDF 文件，收到: {source}")
-        if not source.exists():
-            raise FileNotFoundError(f"未找到 PDF 文件: {source}")
+    def extract_page_texts(self, pdf_path: str) -> tuple:
+        source = resolve_pdf_path(pdf_path)
 
         try:
             from langchain_community.document_loaders import PyMuPDFLoader
         except ImportError as exc:
             raise ImportError(
-                "LangChain PDF 解析需要 langchain-community，"
-                "请使用 `uv add langchain-community` 安装。"
+                "langchain-community is required for LangChain PDF parsing. "
+                "Install it with `uv add langchain-community`."
             ) from exc
 
         loader = PyMuPDFLoader(str(source))
-        return source, loader.load()
-
-    def extract_text(self, pdf_path: str | Path) -> tuple[Path, list, str]:
-        source, documents = self.load_documents(pdf_path)
+        documents = loader.load()
         page_texts = [doc.page_content or "" for doc in documents]
-        full_text = self._normalize_text("\n\n".join(page_texts))
-        return source, documents, full_text
+        return source, page_texts
 
-    def split_text(self, text: str) -> list[str]:
-        if not text:
+    def extract_document(self, pdf_path: str) -> PdfDocumentData:
+        source, page_texts = self.extract_page_texts(pdf_path)
+        full_text, page_spans = compose_document(page_texts)
+        title, company_name = extract_document_metadata(source, page_texts)
+        return PdfDocumentData(
+            source=source,
+            page_texts=page_texts,
+            full_text=full_text,
+            page_spans=page_spans,
+            page_count=len(page_texts),
+            title=title,
+            company_name=company_name,
+        )
+
+    def split_document(self, document: PdfDocumentData) -> list[ChunkSlice]:
+        if not document.full_text:
             return []
 
         try:
             from langchain_text_splitters import RecursiveCharacterTextSplitter
         except ImportError as exc:
             raise ImportError(
-                "RecursiveCharacterTextSplitter 需要 langchain-text-splitters，"
-                "请使用 `uv add langchain-text-splitters` 安装。"
+                "langchain-text-splitters is required for RecursiveCharacterTextSplitter. "
+                "Install it with `uv add langchain-text-splitters`."
             ) from exc
 
         splitter = RecursiveCharacterTextSplitter(
@@ -71,95 +69,80 @@ class LangChainPdfParser:
             chunk_overlap=self.chunk_config.chunk_overlap,
             length_function=len,
             is_separator_regex=False,
+            add_start_index=True,
         )
-        return [chunk.strip() for chunk in splitter.split_text(text) if chunk.strip()]
+        split_documents = splitter.create_documents([document.full_text], metadatas=[{}])
 
-    def build_chunks(
-        self,
-        pdf_path: str | Path,
-        *,
-        label: str | None = None,
-    ) -> list[dict]:
-        source, documents, full_text = self.extract_text(pdf_path)
-        chunks = self.split_text(full_text)
-        doc_id = hashlib.sha256(str(source).encode("utf-8")).hexdigest()[:64]
+        chunk_slices: list[ChunkSlice] = []
+        for doc in split_documents:
+            content = doc.page_content
+            if not content:
+                continue
+            start = int(doc.metadata.get("start_index", -1))
+            if start < 0:
+                continue
+            chunk_slices.append(
+                ChunkSlice(
+                    content=content,
+                    start=start,
+                    end=start + len(content),
+                )
+            )
+        return chunk_slices
+
+    def build_chunks(self, pdf_path: str, *, label: str | None = None) -> list[dict]:
+        document = self.extract_document(pdf_path)
+        chunk_slices = self.split_document(document)
         chunk_label = label or self._default_label()
-
+        doc_id = make_doc_id(document.source)
         return [
-            {
-                "doc_id": doc_id,
-                "chunk_no": index,
-                "content": chunk,
-                "token_count": self._estimate_token_count(chunk),
-                "char_count": len(chunk),
-                "source": str(source),
-                "label": chunk_label,
-                "metadata": {
-                    "chunk_size": self.chunk_config.chunk_size,
-                    "chunk_overlap": self.chunk_config.chunk_overlap,
-                    "page_count": len(documents),
-                    "parser": "langchain_pymupdf_loader",
-                    "source_file": source.name,
-                },
-            }
-            for index, chunk in enumerate(chunks)
+            build_chunk_record(
+                doc_id=doc_id,
+                chunk_no=index,
+                chunk=chunk,
+                document=document,
+                chunk_config=self.chunk_config,
+                label=chunk_label,
+                parser_name=self.parser_name,
+            )
+            for index, chunk in enumerate(chunk_slices)
         ]
 
     def save_chunks(
         self,
-        pdf_path: str | Path,
-        output_path: str | Path,
+        pdf_path: str,
+        output_path: str,
         *,
         label: str | None = None,
-    ) -> Path:
-        records = self.build_chunks(pdf_path=pdf_path, label=label)
-        output = Path(output_path).expanduser().resolve()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        with output.open("w", encoding="utf-8") as file_obj:
-            for record in records:
-                file_obj.write(json.dumps(record, ensure_ascii=False) + "\n")
-        return output
+    ):
+        return save_jsonl(self.build_chunks(pdf_path=pdf_path, label=label), output_path)
 
     def _default_label(self) -> str:
-        return (
-            f"langchain_fixed_{self.chunk_config.chunk_size}"
-            f"_{self.chunk_config.chunk_overlap}"
-        )
-
-    @staticmethod
-    def _normalize_text(text: str) -> str:
-        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-        normalized = re.sub(r"[ \t]+\n", "\n", normalized)
-        normalized = re.sub(r"\n{3,}", "\n\n", normalized)
-        return normalized.strip()
-
-    @staticmethod
-    def _estimate_token_count(text: str) -> int:
-        return len(TOKEN_PATTERN.findall(text))
+        return f"{self.label_prefix}_{self.chunk_config.chunk_size}_{self.chunk_config.chunk_overlap}"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="使用 LangChain PyMuPDFLoader 解析 PDF 并按固定大小输出 JSONL 分块。"
+        description="Parse PDF files with LangChain and write recursive JSONL chunks."
     )
-    parser.add_argument("--input", required=True, help="PDF 文件路径。")
-    parser.add_argument("--output", required=True, help="JSONL 输出文件路径。")
+    parser.add_argument("--input", required=True, help="Path to the PDF file.")
+    parser.add_argument("--output", required=True, help="Path to the JSONL output file.")
     parser.add_argument(
         "--chunk-size",
         type=int,
-        default=DEFAULT_CHUNK_SIZE,
-        help=f"固定分块大小。默认值: {DEFAULT_CHUNK_SIZE}。",
+        default=1000,
+        help="Fixed chunk size. Default: 1000.",
     )
     parser.add_argument(
         "--chunk-overlap",
         type=int,
-        default=DEFAULT_CHUNK_OVERLAP,
-        help=f"固定分块重叠量。默认值: {DEFAULT_CHUNK_OVERLAP}。",
+        default=200,
+        help="Fixed chunk overlap. Default: 200.",
     )
     parser.add_argument(
         "--label",
         default=None,
-        help="可选的分块标签。默认值为 langchain_fixed_<chunk_size>_<chunk_overlap>。",
+        help="Optional chunk label. Defaults to langchain_recursive_<chunk_size>_<chunk_overlap>.",
     )
     return parser.parse_args()
 
@@ -177,7 +160,7 @@ def main() -> None:
         output_path=args.output,
         label=args.label,
     )
-    print(f"分块已写入: {output}")
+    print(f"Chunks written to: {output}")
 
 
 if __name__ == "__main__":

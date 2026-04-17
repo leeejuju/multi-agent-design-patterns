@@ -1,120 +1,124 @@
-from __future__ import annotations
-
-import argparse
-
+import re
+import json
 import fitz
+import argparse
+from dataclasses import dataclass
 
-from parser_common import (
-    ChunkConfig,
-    PdfDocumentData,
-    build_chunk_record,
-    compose_document,
-    extract_document_metadata,
-    make_doc_id,
-    make_fixed_chunks,
-    resolve_pdf_path,
-    save_jsonl,
-)
+
+@dataclass(frozen=True)
+class ChunkConfig:
+    chunk_size: int = 1000
+    chunk_overlap: int = 200
 
 
 class BasicParser:
-    parser_name = "pymupdf_raw_text"
+    parser_name = "基础解析器"
     label_prefix = "raw_fixed"
 
-    def __init__(self, chunk_config: ChunkConfig | None = None) -> None:
-        self.chunk_config = chunk_config or ChunkConfig()
+    def __init__(self) -> None:
+        self.chunk_config = ChunkConfig()
 
-    def extract_page_texts(self, pdf_path: str) -> tuple:
-        source = resolve_pdf_path(pdf_path)
-        with fitz.open(source) as document:
-            page_texts = [page.get_text("text") or "" for page in document]
-        return source, page_texts
-
-    def extract_document(self, pdf_path: str) -> PdfDocumentData:
-        source, page_texts = self.extract_page_texts(pdf_path)
-        full_text, page_spans = compose_document(page_texts)
-        title, company_name = extract_document_metadata(source, page_texts)
-        return PdfDocumentData(
-            source=source,
-            page_texts=page_texts,
-            full_text=full_text,
-            page_spans=page_spans,
-            page_count=len(page_texts),
-            title=title,
-            company_name=company_name,
+    def metadata_parser(self, source: str):
+        metadata_dict = {}
+        doc = fitz.open(source)
+        # 定义正则：匹配常见的公司名后缀
+        COMPANY_PATTERN = re.compile(
+            r"\b(?:limited|ltd\.?|inc\.?|corp\.?|corporation|group|holdings?|plc|llc|pty\.?\s+ltd\.?|co\.?)\b",
+            re.IGNORECASE,
         )
 
-    def build_chunks(self, pdf_path: str, *, label: str | None = None) -> list[dict]:
-        document = self.extract_document(pdf_path)
-        chunk_slices = make_fixed_chunks(document.full_text, self.chunk_config)
-        chunk_label = label or self._default_label()
-        doc_id = make_doc_id(document.source)
-        return [
-            build_chunk_record(
-                doc_id=doc_id,
-                chunk_no=index,
-                chunk=chunk,
-                document=document,
-                chunk_config=self.chunk_config,
-                label=chunk_label,
-                parser_name=self.parser_name,
-            )
-            for index, chunk in enumerate(chunk_slices)
-        ]
+        lines = []
+        for page in range(min(3, len(doc))):
+            text = doc[page].get_text()
+            lines.extend([line.strip() for line in text.splitlines() if line.strip()])
 
-    def save_chunks(
-        self,
-        pdf_path: str,
-        output_path: str,
-        *,
-        label: str | None = None,
-    ):
-        return save_jsonl(self.build_chunks(pdf_path=pdf_path, label=label), output_path)
+        company_name = ""
+        for line in lines:
+            if COMPANY_PATTERN.search(line):
+                company_name = line
+                break
 
-    def _default_label(self) -> str:
-        return f"{self.label_prefix}_{self.chunk_config.chunk_size}_{self.chunk_config.chunk_overlap}"
+        title = ""
+        first_page_lines = [line.strip() for line in doc[0].get_text().splitlines() if line.strip()]
+        for line in first_page_lines:
+            if COMPANY_PATTERN.search(line):
+                continue
+            if line.lower() in {"contents", "table of contents"}:
+                continue
+            if 2 < len(line) < 140 and not re.fullmatch(r"[\W_]+|\d+", line):
+                title = line
+                break
+
+        metadata_dict["company_name"] = company_name
+        metadata_dict["title"] = title
+        return metadata_dict
+
+    def build_chunk(self, source: str):
+        page_dict = []
+        doc = fitz.open(source)
+        texts = [doc[page].get_text() for page in range(len(doc))]
+        for page, text in enumerate(texts):
+            # 清理文本，将回车、换行、控制字符等统一或删除
+            text = text.replace("\r\n", "\n").replace("\r", "\n")
+            text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", text)
+            text = re.sub(r"[ \t]+\n", "\n", text)
+            text = re.sub(r"\n{3,}", "\n\n", text)
+            text = text.strip()
+
+            for i in range(
+                0, len(text), self.chunk_config.chunk_size - self.chunk_config.chunk_overlap
+            ):
+                chunk = text[i : i + self.chunk_config.chunk_size]
+                chunk = chunk.strip()
+                page_dict.append(
+                    {
+                        "text": chunk,
+                        "page": page + 1,
+                    }
+                )
+        return page_dict
+
+    def save_json(self, pdf_path: str, output_path: str):
+        import json
+        from pathlib import Path
+
+        metadata_dict = self.metadata_parser(pdf_path)
+        page_dict = self.build_chunk(pdf_path)
+        metadata_dict["pages"] = page_dict
+
+        out_path = Path(output_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with out_path.open("w", encoding="utf-8") as f:
+            json.dump(metadata_dict, f, ensure_ascii=False, indent=4)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Extract raw PDF text and write fixed-size JSONL chunks."
-    )
-    parser.add_argument("--input", required=True, help="Path to the PDF file.")
-    parser.add_argument("--output", required=True, help="Path to the JSONL output file.")
+    parser = argparse.ArgumentParser(description="提取pdf文本并写入固定大小的json文件.")
+    parser.add_argument("--input", required=True, help="pdf文件路径")
+    parser.add_argument("--output", required=True, help="json文件路径")
     parser.add_argument(
         "--chunk-size",
         type=int,
         default=1000,
-        help="Fixed chunk size. Default: 1000.",
+        help="固定chunk为1000.",
     )
     parser.add_argument(
         "--chunk-overlap",
         type=int,
         default=200,
-        help="Fixed chunk overlap. Default: 200.",
-    )
-    parser.add_argument(
-        "--label",
-        default=None,
-        help="Optional chunk label. Defaults to raw_fixed_<chunk_size>_<chunk_overlap>.",
+        help="固定overlap为200.",
     )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    parser = BasicParser(
-        chunk_config=ChunkConfig(
-            chunk_size=args.chunk_size,
-            chunk_overlap=args.chunk_overlap,
-        )
-    )
-    output = parser.save_chunks(
+    parser = BasicParser()
+    parser.save_json(
         pdf_path=args.input,
         output_path=args.output,
-        label=args.label,
     )
-    print(f"Chunks written to: {output}")
 
 
 if __name__ == "__main__":

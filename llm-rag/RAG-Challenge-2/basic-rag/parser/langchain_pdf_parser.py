@@ -11,7 +11,7 @@ from parser_common import (
     extract_document_metadata,
     make_doc_id,
     resolve_pdf_path,
-    save_jsonl,
+    save_json,
 )
 
 
@@ -115,18 +115,20 @@ class LangChainPdfParser:
         *,
         label: str | None = None,
     ):
-        return save_jsonl(self.build_chunks(pdf_path=pdf_path, label=label), output_path)
+        return save_json(self.build_chunks(pdf_path=pdf_path, label=label), output_path)
 
     def _default_label(self) -> str:
-        return f"{self.label_prefix}_{self.chunk_config.chunk_size}_{self.chunk_config.chunk_overlap}"
+        return (
+            f"{self.label_prefix}_{self.chunk_config.chunk_size}_{self.chunk_config.chunk_overlap}"
+        )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Parse PDF files with LangChain and write recursive JSONL chunks."
+        description="Parse PDF files with LangChain and write recursive JSON chunks."
     )
     parser.add_argument("--input", required=True, help="Path to the PDF file.")
-    parser.add_argument("--output", required=True, help="Path to the JSONL output file.")
+    parser.add_argument("--output", required=True, help="Path to the JSON output file.")
     parser.add_argument(
         "--chunk-size",
         type=int,

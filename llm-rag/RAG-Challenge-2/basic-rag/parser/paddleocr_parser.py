@@ -15,7 +15,7 @@ from parser_common import (
     make_doc_id,
     make_fixed_chunks,
     resolve_pdf_path,
-    save_jsonl,
+    save_json,
 )
 
 
@@ -89,7 +89,7 @@ class PaddleOCRParser:
         *,
         label: str | None = None,
     ):
-        return save_jsonl(self.build_chunks(pdf_path=pdf_path, label=label), output_path)
+        return save_json(self.build_chunks(pdf_path=pdf_path, label=label), output_path)
 
     def _ocr_page(
         self,
@@ -181,10 +181,10 @@ def parse_headers(values: list[str] | None) -> dict[str, str]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Render PDF pages, call a PaddleOCR-compatible HTTP API, and write JSONL chunks."
+        description="Render PDF pages, call a PaddleOCR-compatible HTTP API, and write JSON chunks."
     )
     parser.add_argument("--input", required=True, help="Path to the PDF file.")
-    parser.add_argument("--output", required=True, help="Path to the JSONL output file.")
+    parser.add_argument("--output", required=True, help="Path to the JSON output file.")
     parser.add_argument("--ocr-api-url", required=True, help="PaddleOCR-compatible API URL.")
     parser.add_argument(
         "--ocr-api-header",

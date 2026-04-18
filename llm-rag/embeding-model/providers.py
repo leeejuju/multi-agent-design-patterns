@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True)
 class EmbeddingProvider:
     name: str
-    endpoint: str
+    base_url: str
     api_key_env: str | None
     default_model: str
     recommended_models: tuple[str, ...]
@@ -18,7 +18,7 @@ class EmbeddingProvider:
 PROVIDERS: dict[str, EmbeddingProvider] = {
     "openai": EmbeddingProvider(
         name="openai",
-        endpoint="https://api.openai.com/v1/embeddings",
+        base_url="https://api.openai.com/v1/embeddings",
         api_key_env="OPENAI_API_KEY",
         default_model="text-embedding-3-small",
         recommended_models=("text-embedding-3-small", "text-embedding-3-large"),
@@ -27,7 +27,7 @@ PROVIDERS: dict[str, EmbeddingProvider] = {
     ),
     "dashscope": EmbeddingProvider(
         name="dashscope",
-        endpoint="https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings",
         api_key_env="DASHSCOPE_API_KEY",
         default_model="text-embedding-v4",
         recommended_models=("text-embedding-v4", "text-embedding-v3"),
@@ -36,7 +36,7 @@ PROVIDERS: dict[str, EmbeddingProvider] = {
     ),
     "zhipu": EmbeddingProvider(
         name="zhipu",
-        endpoint="https://open.bigmodel.cn/api/paas/v4/embeddings",
+        base_url="https://open.bigmodel.cn/api/paas/v4/embeddings",
         api_key_env="ZHIPU_API_KEY",
         default_model="embedding-3",
         recommended_models=("embedding-3", "embedding-2"),
@@ -44,7 +44,7 @@ PROVIDERS: dict[str, EmbeddingProvider] = {
     ),
     "jina": EmbeddingProvider(
         name="jina",
-        endpoint="https://api.jina.ai/v1/embeddings",
+        base_url="https://api.jina.ai/v1/embeddings",
         api_key_env="JINA_API_KEY",
         default_model="jina-embeddings-v3",
         recommended_models=("jina-embeddings-v3", "jina-embeddings-v4"),
@@ -55,7 +55,7 @@ PROVIDERS: dict[str, EmbeddingProvider] = {
     ),
     "voyage": EmbeddingProvider(
         name="voyage",
-        endpoint="https://api.voyageai.com/v1/embeddings",
+        base_url="https://api.voyageai.com/v1/embeddings",
         api_key_env="VOYAGE_API_KEY",
         default_model="voyage-4-lite",
         recommended_models=("voyage-4-lite", "voyage-4", "voyage-4-large"),
@@ -67,7 +67,7 @@ PROVIDERS: dict[str, EmbeddingProvider] = {
     ),
     "ollama": EmbeddingProvider(
         name="ollama",
-        endpoint="http://127.0.0.1:11434/api/embed",
+        base_url="http://127.0.0.1:11434/api/embed",
         api_key_env=None,
         default_model="bge-m3",
         recommended_models=("bge-m3", "nomic-embed-text", "mxbai-embed-large"),

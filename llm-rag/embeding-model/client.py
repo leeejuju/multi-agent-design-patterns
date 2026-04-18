@@ -14,6 +14,7 @@ from providers import PROVIDERS, EmbeddingProvider
 @dataclass
 class EmbeddingResponse:
     """嵌入调用的响应结果数据类"""
+
     model: str
     vectors: list[list[float]]
     usage: dict[str, Any] | None = None
@@ -21,6 +22,7 @@ class EmbeddingResponse:
 
 class BaseEmbeddingClient(ABC):
     """嵌入客户端抽象基类"""
+
     model: str
 
     @abstractmethod
@@ -48,6 +50,7 @@ class BaseEmbeddingClient(ABC):
 
 class BaseHttpEmbeddingClient(BaseEmbeddingClient):
     """基于 HTTP 的嵌入客户端基类，提供通用的批处理和网络请求构建逻辑"""
+
     def __init__(self, model: str, timeout: int = 60) -> None:
         self.model = model
         self.timeout = timeout
@@ -79,6 +82,7 @@ class BaseHttpEmbeddingClient(BaseEmbeddingClient):
         results: list[list[list[float]] | None] = [None] * len(chunks)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
+
             async def worker(index: int, chunk: list[str]) -> None:
                 async with semaphore:
                     response = await self._aembed(client, chunk, is_query)
@@ -130,6 +134,7 @@ class BaseHttpEmbeddingClient(BaseEmbeddingClient):
 
 class RemoteEmbeddingClient(BaseHttpEmbeddingClient):
     """通用远程大模型嵌入客户端（兼容 OpenAI, 智谱, 阿里云等标准接口格式）"""
+
     def __init__(
         self,
         provider: EmbeddingProvider,
@@ -161,7 +166,7 @@ class RemoteEmbeddingClient(BaseHttpEmbeddingClient):
     def _post_json(self, payload: dict[str, Any]) -> dict[str, Any]:
         with httpx.Client(timeout=self.timeout) as client:
             response = client.post(
-                self.provider.endpoint,
+                self.provider.base_url,
                 json=payload,
                 headers={
                     "Content-Type": "application/json",
@@ -177,7 +182,7 @@ class RemoteEmbeddingClient(BaseHttpEmbeddingClient):
         payload: dict[str, Any],
     ) -> dict[str, Any]:
         response = await client.post(
-            self.provider.endpoint,
+            self.provider.base_url,
             json=payload,
             headers={
                 "Content-Type": "application/json",
@@ -194,6 +199,7 @@ class RemoteEmbeddingClient(BaseHttpEmbeddingClient):
 
 class OllamaEmbeddingClient(BaseHttpEmbeddingClient):
     """本地 Ollama 专用的嵌入客户端"""
+
     def __init__(
         self,
         provider: EmbeddingProvider,
@@ -222,7 +228,7 @@ class OllamaEmbeddingClient(BaseHttpEmbeddingClient):
     def _post_json(self, payload: dict[str, Any]) -> dict[str, Any]:
         with httpx.Client(timeout=self.timeout) as client:
             response = client.post(
-                self.provider.endpoint,
+                self.provider.base_url,
                 json=payload,
                 headers={"Content-Type": "application/json"},
             )
@@ -235,7 +241,7 @@ class OllamaEmbeddingClient(BaseHttpEmbeddingClient):
         payload: dict[str, Any],
     ) -> dict[str, Any]:
         response = await client.post(
-            self.provider.endpoint,
+            self.provider.base_url,
             json=payload,
             headers={"Content-Type": "application/json"},
         )

@@ -28,7 +28,7 @@ class BasicParser:
         )
 
         lines = []
-        for page in range(min(3, len(doc))):
+        for page in range(2):
             text = doc[page].get_text()
             lines.extend([line.strip() for line in text.splitlines() if line.strip()])
 
@@ -45,12 +45,13 @@ class BasicParser:
                 continue
             if line.lower() in {"contents", "table of contents"}:
                 continue
-            if 2 < len(line) < 140 and not re.fullmatch(r"[\W_]+|\d+", line):
+            if 0 < len(line) < 20 and not re.fullmatch(r"[\W_]+|\d+", line):
                 title = line
                 break
 
         metadata_dict["company_name"] = company_name
         metadata_dict["title"] = title
+        metadata_dict["page_count"] = len(doc)
         return metadata_dict
 
     def build_chunk(self, source: str):
@@ -73,13 +74,12 @@ class BasicParser:
                 page_dict.append(
                     {
                         "text": chunk,
-                        "page": page + 1,
+                        "page": page,
                     }
                 )
         return page_dict
 
     def save_json(self, pdf_path: str, output_path: str):
-        import json
         from pathlib import Path
 
         metadata_dict = self.metadata_parser(pdf_path)

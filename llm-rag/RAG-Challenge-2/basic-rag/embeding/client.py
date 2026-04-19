@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-
 from providers import PROVIDERS, EmbeddingProvider
 
 
@@ -79,22 +78,17 @@ class BaseHttpEmbeddingClient(BaseEmbeddingClient):
 
         chunks = [texts[index : index + batch_size] for index in range(0, len(texts), batch_size)]
         semaphore = asyncio.Semaphore(max_concurrency)
-        results: list[list[list[float]] | None] = [None] * len(chunks)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
 
-            async def worker(index: int, chunk: list[str]) -> None:
+            async def encode_chunk(chunk: list[str]) -> list[list[float]]:
                 async with semaphore:
                     response = await self._aembed(client, chunk, is_query)
-                    results[index] = response.vectors
+                    return response.vectors
 
-            await asyncio.gather(*(worker(index, chunk) for index, chunk in enumerate(chunks)))
+            results = await asyncio.gather(*(encode_chunk(chunk) for chunk in chunks))
 
-        vectors: list[list[float]] = []
-        for item in results:
-            if item is not None:
-                vectors.extend(item)
-        return vectors
+        return [vector for chunk_vectors in results for vector in chunk_vectors]
 
     def _embed(self, texts: list[str], is_query: bool) -> EmbeddingResponse:
         if not texts:
@@ -140,7 +134,7 @@ class RemoteEmbeddingClient(BaseHttpEmbeddingClient):
         provider: EmbeddingProvider,
         model: str | None = None,
         dimensions: int | None = None,
-        timeout: int = 60,
+        timeout: int = 400,
     ) -> None:
         super().__init__(model=model or provider.default_model, timeout=timeout)
         self.provider = provider
@@ -217,8 +211,8 @@ class OllamaEmbeddingClient(BaseHttpEmbeddingClient):
             "input": texts if len(texts) > 1 else texts[0],
             **self.provider.extra_body,
         }
-        if self.dimensions is not None:
-            payload["dimensions"] = self.dimensions
+        if self.dimensions is not None and self.provider.dimensions_param:
+            payload[self.provider.dimensions_param] = self.dimensions
         if self.provider.query_mode_param:
             payload[self.provider.query_mode_param] = (
                 self.provider.query_mode_value if is_query else self.provider.document_mode_value

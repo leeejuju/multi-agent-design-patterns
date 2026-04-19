@@ -25,6 +25,7 @@ Example: `uv run pytest -q multi-agent-framework/langchain/1-langchain-core/runn
 - Naming: `snake_case` for functions/files, `PascalCase` for classes, `UPPER_CASE` for constants.
 - Design from first principles: start with the simplest version that satisfies the current requirement.
 - Do not add abstractions, defensive branches, extension points, or "just in case" code unless they are required now.
+- For business scripts and one-off workflows, write the smallest direct implementation that completes the task; do not add defensive compatibility layers unless the current data or caller requires them.
 - If a proposed change clearly follows first-principles simplification, execute it directly without asking for extra confirmation.
 - Keep changes minimal and local; avoid broad refactors unless requested.
 - Add comments only for non-obvious logic.

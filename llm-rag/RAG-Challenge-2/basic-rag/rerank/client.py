@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -37,15 +36,6 @@ class BaseRerankClient(ABC):
         top_n: int | None = None,
     ) -> RerankResponse: ...
 
-    @abstractmethod
-    async def batch_rerank(
-        self,
-        pairs: list[tuple[str, list[str]]],
-        *,
-        top_n: int | None = None,
-        max_concurrency: int = 4,
-    ) -> list[RerankResponse]: ...
-
 
 class RemoteRerankClient(BaseRerankClient):
     def __init__(
@@ -73,38 +63,6 @@ class RemoteRerankClient(BaseRerankClient):
             response = client.post(self.provider.endpoint, json=payload, headers=self._headers())
             response.raise_for_status()
             return self._parse_response(response.json(), documents)
-
-    async def batch_rerank(
-        self,
-        pairs: list[tuple[str, list[str]]],
-        *,
-        top_n: int | None = None,
-        max_concurrency: int = 4,
-    ) -> list[RerankResponse]:
-        if not pairs:
-            return []
-        if max_concurrency <= 0:
-            raise ValueError("max_concurrency must be greater than 0")
-
-        semaphore = asyncio.Semaphore(max_concurrency)
-        results: list[RerankResponse | None] = [None] * len(pairs)
-
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async def worker(index: int, pair: tuple[str, list[str]]) -> None:
-                query, documents = pair
-                async with semaphore:
-                    payload = self._build_payload(query=query, documents=documents, top_n=top_n)
-                    response = await client.post(
-                        self.provider.endpoint,
-                        json=payload,
-                        headers=self._headers(),
-                    )
-                    response.raise_for_status()
-                    results[index] = self._parse_response(response.json(), documents)
-
-            await asyncio.gather(*(worker(index, pair) for index, pair in enumerate(pairs)))
-
-        return [item for item in results if item is not None]
 
     def _headers(self) -> dict[str, str]:
         return {

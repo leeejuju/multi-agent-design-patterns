@@ -32,11 +32,17 @@ e2b19d2cc2ccab2fd9022326b56b38fb0e772e73
 
 ### 2.1 检索范围错误
 
-现在是全库向量检索：
+现在是 Milvus 全 collection 向量检索：
 
-```sql
-ORDER BY embedding <=> query_vector
-LIMIT top_k
+```python
+client.search(
+    collection_name="rag_chunk",
+    data=[query_vector],
+    anns_field="embedding",
+    limit=top_k,
+    output_fields=["doc_id", "chunk_no", "content", "source", "label", "metadata"],
+    search_params={"metric_type": "COSINE"},
+)
 ```
 
 但问题本身通常指定了公司，例如：
@@ -202,19 +208,18 @@ Holley Inc. -> 194000c9109c6fa628f1fed33b44ae4c2b8365f4
 question -> extract company/ticker -> doc_id -> filtered vector search
 ```
 
-SQL：
+Milvus filter：
 
-```sql
-SELECT
-    doc_id,
-    chunk_no,
-    content,
-    metadata,
-    1 - (embedding <=> CAST(:query_vector AS vector)) AS cosine_similarity
-FROM public.rag_chunk
-WHERE doc_id = :doc_id
-ORDER BY embedding <=> CAST(:query_vector AS vector)
-LIMIT :top_k;
+```python
+client.search(
+    collection_name="rag_chunk",
+    data=[query_vector],
+    anns_field="embedding",
+    filter='doc_id == "194000c9109c6fa628f1fed33b44ae4c2b8365f4"',
+    limit=top_k,
+    output_fields=["doc_id", "chunk_no", "content", "metadata"],
+    search_params={"metric_type": "COSINE"},
+)
 ```
 
 ### 4.4 调整 chunk 策略
@@ -238,5 +243,5 @@ chunk_overlap = 100
 
 这样的话，能够在很大程度上保证上下文语义的完整性，也可以避免很多情况（比如 Tail 这些问题）。这方面应该考虑得更细一点，当然本次实验主要是用作对比.
 
-而且本来想省一套的，发现省不掉。
-最后还是用 Milvus 吧，不想加这一块，感觉很难受。
+当前知识库方案直接切到 Milvus，不再继续维护 PostgreSQL / pgvector 路线。
+本阶段只是 RAG 检索实验，优先把解析、chunk、metadata、embedding、召回评估跑通。

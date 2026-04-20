@@ -8,8 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from pymilvus import MilvusClient
 
 basic_rag_dir = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(basic_rag_dir))
@@ -20,12 +19,9 @@ from llm.providers import PROVIDERS  # noqa: E402
 load_dotenv()
 
 
-def vector_literal(vector: list[float]) -> str:
-    return "[" + ",".join(str(value) for value in vector) + "]"
-
-
 async def search(
-    database_url: str,
+    milvus_uri: str,
+    collection_name: str,
     query: str,
     *,
     top_k: int,
@@ -37,25 +33,33 @@ async def search(
         embedding_provider, model=embedding_model, dimensions=dimensions
     )
     embedding_client.timeout = 300
-    query_vector = vector_literal(embedding_client.embed_query(query))
+    query_vector = embedding_client.embed_query(query)
 
-    sql = text(
-        """
-        SELECT
-            doc_id, chunk_no, content, source, label, metadata,
-            embedding <=> :query_vector AS distance,
-            1 - (embedding <=> :query_vector) AS cosine_similarity
-        FROM public.rag_chunk
-        ORDER BY embedding <=> :query_vector
-        LIMIT :top_k
-        """
+    client = MilvusClient(uri=milvus_uri, token=os.getenv("MILVUS_TOKEN", ""))
+    hits = client.search(
+        collection_name=collection_name,
+        data=[query_vector],
+        anns_field="embedding",
+        limit=top_k,
+        output_fields=["doc_id", "chunk_no", "content", "source", "label", "metadata"],
+        search_params={"metric_type": "COSINE"},
     )
+    client.close()
 
-    engine = create_async_engine(database_url)
-    async with engine.connect() as conn:
-        rows = (await conn.execute(sql, {"query_vector": query_vector, "top_k": top_k})).mappings()
-        chunks = [dict(row) for row in rows]
-    await engine.dispose()
+    chunks = []
+    for hit in hits[0]:
+        entity = hit["entity"]
+        chunks.append(
+            {
+                "doc_id": entity["doc_id"],
+                "chunk_no": entity["chunk_no"],
+                "content": entity["content"],
+                "source": entity["source"],
+                "label": entity["label"],
+                "metadata": entity["metadata"],
+                "cosine_similarity": hit["distance"],
+            }
+        )
     return chunks
 
 
@@ -102,7 +106,8 @@ def build_prompt(query: str, kind: str, top_k: int, chunks: list[dict]) -> str:
 
 
 async def answer(
-    database_url: str,
+    milvus_uri: str,
+    collection_name: str,
     query: str,
     *,
     kind: str,
@@ -113,7 +118,8 @@ async def answer(
     llm_provider: str,
 ) -> str:
     chunks = await search(
-        database_url,
+        milvus_uri,
+        collection_name,
         query,
         top_k=top_k,
         embedding_provider=embedding_provider,
@@ -135,7 +141,8 @@ async def main() -> None:
     parser.add_argument("--query", required=True)
     parser.add_argument("--kind", required=True, choices=["number", "name", "names", "boolean"])
     parser.add_argument("--top-k", type=int, default=5)
-    parser.add_argument("--database-url", default=os.getenv("POSTGRE_URL"))
+    parser.add_argument("--milvus-uri", default=os.getenv("MILVUS_URI", "http://localhost:19530"))
+    parser.add_argument("--collection", default=os.getenv("MILVUS_COLLECTION", "rag_chunk"))
     parser.add_argument("--embedding-provider", default="dashscope")
     parser.add_argument("--embedding-model", default=None)
     parser.add_argument("--llm-provider", default="dashscope")
@@ -143,7 +150,8 @@ async def main() -> None:
     args = parser.parse_args()
 
     result = await answer(
-        args.database_url,
+        args.milvus_uri,
+        args.collection,
         args.query,
         kind=args.kind,
         top_k=args.top_k,

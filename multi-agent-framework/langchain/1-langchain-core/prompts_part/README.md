@@ -21,4 +21,14 @@
   5. Message Placeholder
   6. System Message Prompt
 
-  大多数来说，我觉得这些都是一些重复的东西。甚至包括以前的 Dict Prompt Template 和 Few Shots Prompt Template，本质上这些东西在很多功能上都具有很大程度的交叉和重叠，我觉得这个设计上来说是冗余的
+主要是集中在一些这样的场景，比如说是 Chat、Dict、Few-shot 这种场景下，集成了很多个 Prompt 类型。
+
+
+拿 AI Message 来说的话，你可以看到它集成了：
+1. Tool Call
+2. Invalid Tool Call
+3. Usage Metadata
+
+这些东西是能够去获取到 AI 执行的一些状态最主要的就是 message placeholder，至于 prompt template 甚至都不重要（这句话可以删掉了），还是  message placeholder 比较重要。
+
+我感觉更多地应该是去学到，它这个 prompt 在整个 agent loop 的环节下，到底会产生一个什么样的作用。

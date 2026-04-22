@@ -76,7 +76,7 @@ class LangChainPdfParser:
     def __init__(self, chunk_config: ChunkConfig | None = None) -> None:
         self.chunk_config = chunk_config or ChunkConfig()
         if self.chunk_config.chunk_overlap >= self.chunk_config.chunk_size:
-            raise ValueError("chunk_overlap must be smaller than chunk_size.")
+            raise ValueError("chunk_overlap 必须小于 chunk_size。")
 
     def extract_document(self, pdf_path: str | Path) -> PdfDocument:
         source = Path(pdf_path).expanduser().resolve()
@@ -107,8 +107,10 @@ class LangChainPdfParser:
             end = self._best_split_end(document.full_text, start, end)
             content = document.full_text[start:end].strip()
             if content:
-                content_start = start + len(document.full_text[start:end]) - len(
-                    document.full_text[start:end].lstrip()
+                content_start = (
+                    start
+                    + len(document.full_text[start:end])
+                    - len(document.full_text[start:end].lstrip())
                 )
                 chunks.append(ChunkSlice(content=content, start=content_start, end=end))
             if end >= len(document.full_text):
@@ -170,26 +172,22 @@ class LangChainPdfParser:
 
     def _default_label(self) -> str:
         return (
-            f"{self.label_prefix}_"
-            f"{self.chunk_config.chunk_size}_"
-            f"{self.chunk_config.chunk_overlap}"
+            f"{self.label_prefix}_{self.chunk_config.chunk_size}_{self.chunk_config.chunk_overlap}"
         )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Parse PDF files with PyMuPDF and write JSON chunks."
-    )
-    parser.add_argument("--input", required=True, help="PDF file or directory.")
-    parser.add_argument("--output", required=True, help="JSON file or output directory.")
-    parser.add_argument("--chunk-size", type=int, default=1000, help="Chunk size. Default: 1000.")
+    parser = argparse.ArgumentParser(description="使用 PyMuPDF 解析 PDF 文件并写入 JSON 分块数据。")
+    parser.add_argument("--input", required=True, help="PDF 文件或目录。")
+    parser.add_argument("--output", required=True, help="JSON 文件或输出目录。")
+    parser.add_argument("--chunk-size", type=int, default=1000, help="分块大小。默认：1000。")
     parser.add_argument(
         "--chunk-overlap",
         type=int,
         default=200,
-        help="Chunk overlap. Default: 200.",
+        help="分块重叠大小。默认：200。",
     )
-    parser.add_argument("--label", default=None, help="Optional chunk label.")
+    parser.add_argument("--label", default=None, help="可选的分块标签。")
     return parser.parse_args()
 
 
@@ -223,7 +221,7 @@ def main() -> None:
             output_path=output_path_for(pdf_path, output_path, multiple=len(pdf_paths) > 1),
             label=args.label,
         )
-        print(f"Chunks written to: {output}")
+        print(f"分块已写入: {output}")
 
 
 if __name__ == "__main__":

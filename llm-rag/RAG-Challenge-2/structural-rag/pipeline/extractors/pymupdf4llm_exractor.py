@@ -28,6 +28,7 @@ def extract_metadata_with_llm(pdf_path: Path) -> dict:
         base_url=provider.base_url,
         api_key=os.getenv(provider.api_key_env),
     )
+    llm.ainvoke(message, )
 
     message = []
 

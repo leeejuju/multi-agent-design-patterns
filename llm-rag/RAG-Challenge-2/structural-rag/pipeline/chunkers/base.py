@@ -1,3 +1,4 @@
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +11,7 @@ except ImportError:
 
 HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 PAGE_MARKER_PATTERN = re.compile(r"^<!--\s*page:\s*(\d+|None)\s*-->\s*$")
+PAGE_METADATA_MARKER_PATTERN = re.compile(r"^<!--\s*page_metadata:\s*(.+?)\s*-->\s*$")
 TABLE_SEPARATOR_PATTERN = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
 FENCE_PATTERN = re.compile(r"^\s*(```|~~~)")
 
@@ -19,6 +21,7 @@ class MarkdownBlock:
     text: str
     block_type: str
     page: int | None
+    metadata: dict
 
 
 @dataclass
@@ -72,6 +75,8 @@ class MarkdownChunker:
                 "level": section.level,
                 "page_start": first_page(section.blocks),
                 "page_end": last_page(section.blocks),
+                "pages": page_numbers(section.blocks),
+                "page_metadata": page_metadata(section.blocks),
             }
             chunks.append(Chunk(text=parent_text, metadata=parent_metadata))
 
@@ -90,6 +95,8 @@ class MarkdownChunker:
                             "parent_id": parent_id,
                             "page_start": first_page(child_blocks),
                             "page_end": last_page(child_blocks),
+                            "pages": page_numbers(child_blocks),
+                            "page_metadata": page_metadata(child_blocks),
                         },
                     )
                 )
@@ -185,16 +192,26 @@ def parse_markdown_blocks(content: str) -> list[MarkdownBlock]:
     blocks: list[MarkdownBlock] = []
     buffer: list[str] = []
     current_page: int | None = None
+    current_page_metadata: dict = {}
     block_page: int | None = None
+    block_metadata: dict | None = None
     index = 0
 
     def flush(block_type: str = "text") -> None:
-        nonlocal buffer, block_page
+        nonlocal buffer, block_page, block_metadata
         text = "\n".join(buffer).strip()
         if text:
-            blocks.append(MarkdownBlock(text=text, block_type=block_type, page=block_page))
+            blocks.append(
+                MarkdownBlock(
+                    text=text,
+                    block_type=block_type,
+                    page=block_page,
+                    metadata=block_metadata or {},
+                )
+            )
         buffer = []
         block_page = None
+        block_metadata = None
 
     while index < len(lines):
         line = lines[index]
@@ -202,6 +219,14 @@ def parse_markdown_blocks(content: str) -> list[MarkdownBlock]:
         if page_match:
             flush()
             current_page = None if page_match.group(1) == "None" else int(page_match.group(1))
+            current_page_metadata = {}
+            index += 1
+            continue
+
+        page_metadata_match = PAGE_METADATA_MARKER_PATTERN.match(line.strip())
+        if page_metadata_match:
+            flush()
+            current_page_metadata = parse_page_metadata(page_metadata_match.group(1))
             index += 1
             continue
 
@@ -214,6 +239,7 @@ def parse_markdown_blocks(content: str) -> list[MarkdownBlock]:
             flush()
             fence = FENCE_PATTERN.match(line).group(1)
             block_page = current_page
+            block_metadata = current_page_metadata
             buffer.append(line)
             index += 1
             while index < len(lines):
@@ -228,6 +254,7 @@ def parse_markdown_blocks(content: str) -> list[MarkdownBlock]:
         if is_table_start(lines, index):
             flush()
             block_page = current_page
+            block_metadata = current_page_metadata
             while index < len(lines) and is_table_line(lines[index]):
                 buffer.append(lines[index])
                 index += 1
@@ -236,12 +263,20 @@ def parse_markdown_blocks(content: str) -> list[MarkdownBlock]:
 
         if HEADING_PATTERN.match(line):
             flush()
-            blocks.append(MarkdownBlock(text=line.strip(), block_type="heading", page=current_page))
+            blocks.append(
+                MarkdownBlock(
+                    text=line.strip(),
+                    block_type="heading",
+                    page=current_page,
+                    metadata=current_page_metadata,
+                )
+            )
             index += 1
             continue
 
         if block_page is None:
             block_page = current_page
+            block_metadata = current_page_metadata
         buffer.append(line)
         index += 1
 
@@ -265,6 +300,14 @@ def strip_markdown_emphasis(text: str) -> str:
     return text.strip().strip("#").strip().strip("*_`").strip()
 
 
+def parse_page_metadata(raw_metadata: str) -> dict:
+    try:
+        metadata = json.loads(raw_metadata)
+    except json.JSONDecodeError:
+        return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
 def inject_heading_context(heading_path: list[str], text: str) -> str:
     if not heading_path:
         return text
@@ -283,3 +326,18 @@ def first_page(blocks: list[MarkdownBlock]) -> int | None:
 def last_page(blocks: list[MarkdownBlock]) -> int | None:
     pages = [block.page for block in blocks if block.page is not None]
     return max(pages) if pages else None
+
+
+def page_numbers(blocks: list[MarkdownBlock]) -> list[int]:
+    return sorted({block.page for block in blocks if block.page is not None})
+
+
+def page_metadata(blocks: list[MarkdownBlock]) -> list[dict]:
+    seen_pages: set[int] = set()
+    metadata: list[dict] = []
+    for block in blocks:
+        if block.page is None or block.page in seen_pages or not block.metadata:
+            continue
+        seen_pages.add(block.page)
+        metadata.append(block.metadata)
+    return metadata

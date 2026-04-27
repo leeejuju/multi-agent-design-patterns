@@ -1,4 +1,6 @@
 import json
+import re
+import csv
 import sys
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -15,13 +17,22 @@ if str(PIPELINE_DIR) not in sys.path:
     sys.path.append(str(PIPELINE_DIR))
 
 
+TABLE_ROW_PATTERN = re.compile(r"^\|.+\|")
+
+
 class JsonExtractor:
-    def __init__(self, metadata: dict | None = None, backup_dir: str | None = None):
+    def __init__(
+        self,
+        metadata: dict | None = None,
+        backup_dir: str | None = None,
+        table_context_lines: int = 5,
+    ):
         self.metadata = metadata
         self.backup_dir = backup_dir
+        self.table_context_lines = table_context_lines
 
     def extract_pages(self, pdf_path: Path, raw_chunks: str | dict | list) -> list[dict]:
-        chunks = self.normalize_page_chunks(raw_chunks)
+        chunks = raw_chunks
         return [self.build_page_record(pdf_path, chunk) for chunk in chunks]
 
     def build_extraction_metadata(self, document_metadata: dict, pages: list[dict]) -> dict:
@@ -29,43 +40,60 @@ class JsonExtractor:
             "document": document_metadata,
             "pages": pages,
         }
+    
 
-    def normalize_page_chunks(self, raw_chunks: str | dict | list) -> list[dict]:
-        if isinstance(raw_chunks, str):
-            raw_chunks = json.loads(raw_chunks)
+    def detect_tables(self, text: str) -> list[dict]:
+        lines = text.split("\n")
+        table_blocks = []
+        i = 0
 
-        if isinstance(raw_chunks, dict):
-            if isinstance(raw_chunks.get("pages"), list):
-                return raw_chunks["pages"]
-            if isinstance(raw_chunks.get("chunks"), list):
-                return raw_chunks["chunks"]
-            if isinstance(raw_chunks.get("page_chunks"), list):
-                return raw_chunks["page_chunks"]
-            return [raw_chunks]
+        while i < len(lines):
+            if not TABLE_ROW_PATTERN.match(lines[i]):
+                i += 1
+                continue
 
-        return raw_chunks
+            table_start = i
+            while i < len(lines) and (
+                TABLE_ROW_PATTERN.match(lines[i]) or lines[i].strip() == ""
+            ):
+                if lines[i].strip() == "" and i + 1 < len(lines) and not TABLE_ROW_PATTERN.match(lines[i + 1]):
+                    break
+                i += 1
+            table_end = i
+            table_lines = lines[table_start:table_end]
+
+            preamble_start = max(0, table_start - self.table_context_lines)
+            preamble_lines = lines[preamble_start:table_start]
+
+            table_blocks.append({
+                "preamble": "\n".join(preamble_lines).strip(),
+                "table": "\n".join(table_lines).strip(),
+                "line_start": table_start,
+                "line_end": table_end,
+            })
+
+        return table_blocks
 
     def build_page_record(self, pdf_path: Path, chunk: dict) -> dict:
         metadata = chunk.get("metadata", {})
+        document_metadata = self.metadata.get(pdf_path.stem, {})
+        
         page = metadata.get("page") or metadata.get("page_number")
         text = chunk.get("text", "")
         page_record = {
             key: value
             for key, value in chunk.items()
-            if key not in {"metadata", "text"}
+            if key not in {"metadata", "text", "page_boxes"}
         }
+
+        tables = self.detect_tables(text)
 
         return {
             **page_record,
             "page": page,
             "source": str(pdf_path),
             "text": text,
-            "metadata": {
-                **metadata,
-                "page": page,
-                "source": str(pdf_path),
-                "file_name": pdf_path.name,
-            },
+            "tables": tables,
         }
 
     def write_extraction_metadata(self, output_dir: Path, pdf_path: Path, metadata: dict) -> Path:
@@ -89,12 +117,30 @@ class PyMuPDF4LLMExtractor:
         input_dir: list[str] | str | None = None,
         output_dir: str | None = None,
         page_batch_size: int = 10,
+        csv_path: str | Path | None = None,
         json_extractor: JsonExtractor | None = None,
     ):
         self.input_dir = input_dir
         self.output_dir = Path(output_dir).expanduser().resolve()
         self.page_batch_size = page_batch_size
-        self.json_extractor = json_extractor or JsonExtractor()
+        self.metadata_dict = {}
+
+        if csv_path:
+            self.metadata_dict = self._parse_csv_metadata(csv_path)
+        self.json_extractor = json_extractor or JsonExtractor(metadata=self.metadata_dict)
+    
+    @staticmethod
+    def _parse_csv_metadata(csv_path: Path) -> dict:
+        company_dict = {}
+        with open(csv_path, 'r', encoding='utf-8') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                company_dict[row["sha1"]] = {
+                    "company_name": row.get('company_name')
+                }
+        return company_dict
+            
+   
 
     def extract_pdf_metadata(self, pdf_path: Path) -> dict:
         doc = fitz.open(str(pdf_path))
@@ -190,10 +236,10 @@ class PyMuPDF4LLMExtractor:
         pdf_path = Path(pdf_path).expanduser().resolve()
 
         if not pdf_path.exists():
-            raise FileNotFoundError("File does not exist")
+            raise FileNotFoundError("文件不存在")
 
         if pdf_path.suffix.lower() != ".pdf":
-            raise ValueError("Invalid file, please provide a PDF")
+            raise ValueError("无效文件，请提供PDF文件")
 
         return pdf_path
 
@@ -205,5 +251,6 @@ if __name__ == "__main__":
             r"E:\1_LLM_PROJECT\multi-agent-design-patterns"
             r"\llm-rag\RAG-Challenge-2\structural-rag\data2"
         ),
+        csv_path=r"E:\1_LLM_PROJECT\multi-agent-design-patterns\llm-rag\RAG-Challenge-2\structural-rag\data.csv",
     )
     extractor.extract_pdf_parallel()

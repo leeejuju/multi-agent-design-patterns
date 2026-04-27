@@ -34,7 +34,8 @@ pip-wheel-metadata/
 build/
 dist/
 *.spec
-.jpg
+*.jpg
+*.png
 
 # Test / coverage
 test/

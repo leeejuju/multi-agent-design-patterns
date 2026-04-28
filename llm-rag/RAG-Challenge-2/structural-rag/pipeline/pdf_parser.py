@@ -31,16 +31,16 @@ class JsonExtractor:
         self.backup_dir = backup_dir
         self.table_context_lines = table_context_lines
 
-    def extract_pages(self, pdf_path: Path, raw_chunks: str | dict | list) -> list[dict]:
+    def extract_pages(self, raw_chunks: str | dict | list) -> list[dict]:
         chunks = raw_chunks
-        return [self.build_page_record(pdf_path, chunk) for chunk in chunks]
+        return [self.build_page_record(chunk) for chunk in chunks]
 
-    def build_extraction_metadata(self, document_metadata: dict, pages: list[dict]) -> dict:
+    def build_extraction_metadata(self, pdf_path: Path, document_metadata: dict, pages: list[dict]) -> dict:
+        company_name = self.metadata.get(pdf_path.stem, {}) if self.metadata else {}
         return {
-            "document": document_metadata,
+            "document": {**document_metadata, **company_name},
             "pages": pages,
         }
-    
 
     def detect_tables(self, text: str) -> list[dict]:
         lines = text.split("\n")
@@ -53,10 +53,12 @@ class JsonExtractor:
                 continue
 
             table_start = i
-            while i < len(lines) and (
-                TABLE_ROW_PATTERN.match(lines[i]) or lines[i].strip() == ""
-            ):
-                if lines[i].strip() == "" and i + 1 < len(lines) and not TABLE_ROW_PATTERN.match(lines[i + 1]):
+            while i < len(lines) and (TABLE_ROW_PATTERN.match(lines[i]) or lines[i].strip() == ""):
+                if (
+                    lines[i].strip() == ""
+                    and i + 1 < len(lines)
+                    and not TABLE_ROW_PATTERN.match(lines[i + 1])
+                ):
                     break
                 i += 1
             table_end = i
@@ -65,19 +67,19 @@ class JsonExtractor:
             preamble_start = max(0, table_start - self.table_context_lines)
             preamble_lines = lines[preamble_start:table_start]
 
-            table_blocks.append({
-                "preamble": "\n".join(preamble_lines).strip(),
-                "table": "\n".join(table_lines).strip(),
-                "line_start": table_start,
-                "line_end": table_end,
-            })
+            table_blocks.append(
+                {
+                    "preamble": "\n".join(preamble_lines).strip(),
+                    "table": "\n".join(table_lines).strip(),
+                    "line_start": table_start,
+                    "line_end": table_end,
+                }
+            )
 
         return table_blocks
 
-    def build_page_record(self, pdf_path: Path, chunk: dict) -> dict:
+    def build_page_record(self, chunk: dict) -> dict:
         metadata = chunk.get("metadata", {})
-        document_metadata = self.metadata.get(pdf_path.stem, {})
-        
         page = metadata.get("page") or metadata.get("page_number")
         text = chunk.get("text", "")
         page_record = {
@@ -90,8 +92,7 @@ class JsonExtractor:
 
         return {
             **page_record,
-            "page": page,
-            "source": str(pdf_path),
+            "page_index": page,
             "text": text,
             "tables": tables,
         }
@@ -128,19 +129,15 @@ class PyMuPDF4LLMExtractor:
         if csv_path:
             self.metadata_dict = self._parse_csv_metadata(csv_path)
         self.json_extractor = json_extractor or JsonExtractor(metadata=self.metadata_dict)
-    
+
     @staticmethod
     def _parse_csv_metadata(csv_path: Path) -> dict:
         company_dict = {}
-        with open(csv_path, 'r', encoding='utf-8') as csvfile:
+        with open(csv_path, "r", encoding="utf-8") as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
-                company_dict[row["sha1"]] = {
-                    "company_name": row.get('company_name')
-                }
+                company_dict[row["sha1"]] = {"company_name": row.get("company_name")}
         return company_dict
-            
-   
 
     def extract_pdf_metadata(self, pdf_path: Path) -> dict:
         doc = fitz.open(str(pdf_path))
@@ -176,12 +173,12 @@ class PyMuPDF4LLMExtractor:
                 page_chunks=True,
                 image_path=str(image_dir),
             )
-            pages.extend(self.json_extractor.extract_pages(pdf_path, raw_chunks))
+            pages.extend(self.json_extractor.extract_pages(raw_chunks))
 
-        pages.sort(key=lambda page: page["page"] or 0)
+        pages.sort(key=lambda page: page["page_index"] or 0)
         content = "\n\n".join(self.format_page_markdown(page) for page in pages)
         extraction_metadata = self.json_extractor.build_extraction_metadata(
-            document_metadata, pages
+            pdf_path, document_metadata, pages
         )
         return pdf_path, content, extraction_metadata
 

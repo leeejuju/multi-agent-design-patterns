@@ -1,4 +1,12 @@
-from .model import Document, Block, Chunk
+from .chunker import JSONChunker
+from .ingestion import BM25Ingestor, MilvusIngestor
+from .model import Chunk, Document, PageChunks
 
-
-__all__ = ["Document", "Block", "Chunk"]
+__all__ = [
+    "Document",
+    "Chunk",
+    "PageChunks",
+    "JSONChunker",
+    "BM25Ingestor",
+    "MilvusIngestor",
+]

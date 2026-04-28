@@ -1,23 +1,30 @@
-# from dataclasses import dataclass
+from dataclasses import dataclass, field
+from uuid import uuid4
 
 
-# @dataclass
-# class Document:
-#     source: str  # 来源（文件路径、URL 等）
-#     blocks: list["Block"]  # 语义块列表
-#     metadata: dict  # 原始文档元数据（如文件名、日期等）
+@dataclass
+class Document:
+    """输入文档的元数据。"""
+    source: str
+    file_name: str
+    metadata: dict = field(default_factory=dict)
 
 
-# @dataclass
-# class Block:
-#     text: str  # 文本块
-#     block_type: str  # 文本块类型（text、table、figure 等）
-#     page: int | None  # 页码
-#     level: int | None  # 文本块等级
-#     metadata: dict  # 文本块元数据
+@dataclass
+class Chunk:
+    """最小检索单元。"""
+
+    text: str
+    metadata: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        if "chunk_id" not in self.metadata:
+            self.metadata["chunk_id"] = uuid4().hex
 
 
-# @dataclass
-# class Chunk:
-#     text: str
-#     metadata: dict
+@dataclass
+class PageChunks:
+    """单页全部 chunk。检索的时候用"""
+
+    page_index: int
+    chunks: list[Chunk] = field(default_factory=list)

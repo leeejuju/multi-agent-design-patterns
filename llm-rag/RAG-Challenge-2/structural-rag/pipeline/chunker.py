@@ -75,7 +75,7 @@ class JSONChunker:
         matches = list(HEADER_PATTERN.finditer(text))
         if not matches:
             stripped = text.strip()
-            return [stripped] if stripped else []
+            return [stripped]
 
         segments: list[str] = []
         for i, match in enumerate(matches):
@@ -89,37 +89,37 @@ class JSONChunker:
     def _drop_noise_segments(self, segments: list[str]) -> list[str]:
         """合并孤儿文本。"""
         cleaned: list[str] = []
-        carry: str = ""
+        prefix: str = ""
         for seg in segments:
             body = self._extract_body(seg)
             if len(body) < NOISE_THRESHOLD:
-                carry = (carry + "\n\n" + seg).strip() if carry else seg
+                prefix = (prefix + "\n\n" + seg).strip() if prefix else seg
             else:
-                if carry:
-                    cleaned.append((carry + "\n\n" + seg).strip())
-                    carry = ""
+                if prefix:
+                    cleaned.append((prefix + "\n\n" + seg).strip())
+                    prefix = ""
                 else:
                     cleaned.append(seg)
-        if carry and cleaned:
-            cleaned[-1] = (cleaned[-1] + "\n\n" + carry).strip()
-        elif carry:
-            cleaned.append(carry)
+        if prefix and cleaned:
+            cleaned[-1] = (cleaned[-1] + "\n\n" + prefix).strip()
+        elif prefix:
+            cleaned.append(prefix)
         return cleaned
 
     @staticmethod
     def _extract_body(text: str) -> str:
         """返回去除标题行和图片引用后的 *text*。"""
         lines = text.split("\n")
-        meaningful: list[str] = []
+        cleaned_text: list[str] = []
         for line in lines:
-            stripped = line.strip()
-            if stripped.startswith("#"):
+            stripped_text = line.strip()
+            if stripped_text.startswith("#"):
                 continue
-            if stripped.startswith("!["):
+            if stripped_text.startswith("!["):
                 continue
-            if stripped:
-                meaningful.append(stripped)
-        return " ".join(meaningful)
+            if stripped_text:
+                cleaned_text.append(stripped_text)
+        return " ".join(cleaned_text)
 
     def _build_chunks(
         self,
@@ -134,7 +134,7 @@ class JSONChunker:
         preamble_texts = {t.get("preamble", "") for t in tables}
 
         for segment in segments:
-            chunk_type = self._classify(segment, table_texts, preamble_texts)
+            chunk_type = self._detect_chunk_type(segment, table_texts, preamble_texts)
             chunks.append(
                 Chunk(
                     text=segment,
@@ -150,7 +150,7 @@ class JSONChunker:
             )
         return chunks
 
-    def _classify(self, text: str, table_texts: set[str], preamble_texts: set[str]) -> str:
+    def _detect_chunk_type(self, text: str, table_texts: set[str], preamble_texts: set[str]) -> str:
         """如果 *text* 与任意表格或前导文本相交，则返回 ``"table"``。"""
         for tt in table_texts:
             if tt and tt in text:
@@ -161,23 +161,24 @@ class JSONChunker:
         return "text"
 
     def _merge_short(self, chunks: list[Chunk]) -> list[Chunk]:
+        "合并相邻短 chunk，累计达到 min_chunk_chars 才吐出，防止过短无检索意义。"
         if not chunks:
             return chunks
 
         merged: list[Chunk] = []
-        buffer: list[Chunk] = []
+        pending: list[Chunk] = []
 
         for chunk in chunks:
-            buffer.append(chunk)
-            if sum(len(c.text) for c in buffer) >= self.min_chunk_chars:
-                merged.append(self._join(buffer))
-                buffer.clear()
+            pending.append(chunk)
+            if sum(len(c.text) for c in pending) >= self.min_chunk_chars:
+                merged.append(self._join(pending))
+                pending.clear()
 
-        if buffer:
-            if merged and len(buffer[0].text) < self.min_chunk_chars:
-                merged[-1] = self._join([merged[-1]] + buffer)
+        if pending:
+            if merged and len(pending[0].text) < self.min_chunk_chars:
+                merged[-1] = self._join([merged[-1]] + pending)
             else:
-                merged.append(self._join(buffer))
+                merged.append(self._join(pending))
 
         return merged
 
@@ -191,12 +192,12 @@ class JSONChunker:
         return len(body) >= NOISE_THRESHOLD
 
     @staticmethod
-    def _join(buffer: list[Chunk]) -> Chunk:
-        if len(buffer) == 1:
-            return buffer[0]
-        text = "\n\n".join(c.text for c in buffer)
-        meta = buffer[0].metadata.copy()
-        types = {c.metadata.get("chunk_type", "text") for c in buffer}
+    def _join(chunks: list[Chunk]) -> Chunk:
+        if len(chunks) == 1:
+            return chunks[0]
+        text = "\n\n".join(c.text for c in chunks)
+        meta = chunks[0].metadata.copy()
+        types = {c.metadata.get("chunk_type", "text") for c in chunks}
         meta["chunk_type"] = "table" if "table" in types else "text"
         return Chunk(text=text, metadata=meta)
 

@@ -1,7 +1,7 @@
 import json
 import re
 from pathlib import Path
-
+from ingestion import BM25Ingestor
 from model import Chunk
 
 HEADER_PATTERN = re.compile(r"^(#{1,6})\s", re.MULTILINE)
@@ -14,8 +14,8 @@ NOISE_THRESHOLD = 50
 
 
 class JSONChunker:
-    """读取SON 文件，基于 Markdown 标题边界（``#`` 到 ``######``）进行拆分。相邻且短于
-    过短的块会被合并，以避免产生。包含表格标记或，表格前导文本的块会被标记为 ``chunk_type: "table"``
+    """读取 JSON 文件，基于 Markdown 标题（``#`` 到 ``######``）边界拆分文本。
+    相邻过短的块会被合并；包含表格标记或表格前导文本的块标记为 ``chunk_type: "table"``。
     """
 
     def __init__(
@@ -203,34 +203,59 @@ class JSONChunker:
 
 
 def main():
-    """独立运行：读取 data2/ 所有 JSON，给出统计信息。"""
+    import argparse
+
     from ingestion import BM25Ingestor
 
-    chunker = JSONChunker(json_paths=DATA_DIR)
+    parser = argparse.ArgumentParser(
+        description="JSON 页面分块，可选运行 BM25 检索验证"
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=DATA_DIR,
+        help="JSON 文件所在目录",
+    )
+    parser.add_argument(
+        "--bm25-index-dir",
+        type=Path,
+        default=DATA_DIR.parent / "pipeline" / "bm25_index",
+        help="BM25 索引输出目录",
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=2,
+        help="每个查询返回几条结果",
+    )
+    parser.add_argument(
+        "--no-bm25",
+        action="store_true",
+        help="跳过 BM25 建库和检索测试",
+    )
+    args = parser.parse_args()
+
+    chunker = JSONChunker(json_paths=args.data_dir)
     chunks = chunker.chunk_all()
+
+    if not chunks:
+        print("未生成任何 chunk，退出。")
+        return
 
     lengths = [len(c.text) for c in chunks]
     types: dict[str, int] = {}
-    for c in chunks:
-        ct = c.metadata.get("chunk_type", "text")
-        types[ct] = types.get(ct, 0) + 1
+    for chunk in chunks:
+        chunk = chunk.metadata.get("chunk_type", "text")
+        types[chunk] = types.get(chunk, 0) + 1
 
     print(f"文档数: {len({c.metadata['doc_id'] for c in chunks})}")
     print(f"chunk 总数: {len(chunks)}")
     print(f"按类型: {types}")
     print(f"大小范围: min={min(lengths)}  max={max(lengths)}  avg={sum(lengths) // len(lengths)}")
 
-    print("\n=== BM25 快速验证 ===")
-    bm25 = BM25Ingestor(DATA_DIR.parent / "pipeline" / "bm25_index")
-    bm25.ingest(chunks)
-    for q in ("risk factor", "supply chain", "executive compensation"):
-        print(f'\n查询: "{q}"')
-        for r in bm25.search(q, top_k=2):
-            meta = r["metadata"]
-            did = meta.get("doc_id", "?")
-            pg = meta.get("page_index", "?")
-            print(f"  [{did:>12s}:p{pg}] score={r['score']:.2f}  {r['text'][:80]}")
-
+    if args.no_bm25:
+        return
+    BM25Ingestor()
 
 if __name__ == "__main__":
     main()

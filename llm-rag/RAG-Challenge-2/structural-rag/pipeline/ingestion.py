@@ -22,7 +22,7 @@ from model import Chunk
 load_dotenv()
 
 # ==========================================================================
-# Configuration
+# 配置
 # ==========================================================================
 
 MILVUS_URI = os.getenv("MILVUS_URI", "http://localhost:19530")
@@ -72,7 +72,6 @@ class BM25Ingestor:
         self._inverted: dict[str, dict[str, int]] = {}
         self._avgdl: float = 0.0
 
-    # -- ingest ------------------------------------------------------------
 
     def ingest(self, chunks: list[Chunk]) -> int:
         self._reset()
@@ -82,7 +81,6 @@ class BM25Ingestor:
         self._save()
         return len(self._corpus)
 
-    # -- search ------------------------------------------------------------
 
     def search(self, query: str, top_k: int = 10) -> list[dict]:
         self._load()
@@ -111,7 +109,6 @@ class BM25Ingestor:
             for cid, score in ranked
         ]
 
-    # -- internals ---------------------------------------------------------
 
     def _reset(self) -> None:
         self._corpus.clear()
@@ -145,7 +142,6 @@ class BM25Ingestor:
     def _tokenize(text: str) -> list[str]:
         return [t.lower() for t in TOKEN_PATTERN.findall(text)]
 
-    # -- persistence -------------------------------------------------------
 
     def _save(self) -> None:
         self._write_json("corpus.json", self._corpus)
@@ -178,10 +174,6 @@ class BM25Ingestor:
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
-# ==========================================================================
-# Milvus Ingestor
-# ==========================================================================
-
 
 class MilvusIngestor:
     def __init__(
@@ -203,7 +195,6 @@ class MilvusIngestor:
             api_key=DASHSCOPE_API_KEY,
         )
 
-    # -- ingest ------------------------------------------------------------
 
     def ingest(self, chunks: list[Chunk], drop_existing: bool = True) -> int:
         self._connect()
@@ -227,7 +218,6 @@ class MilvusIngestor:
         self._ensure_loaded()
         return Collection(self.collection_name).num_entities
 
-    # -- connection --------------------------------------------------------
 
     def _connect(self) -> None:
         alias = "default"
@@ -238,7 +228,6 @@ class MilvusIngestor:
             connections.disconnect(alias)
         connections.connect(alias=alias, uri=self.uri)
 
-    # -- collection -------------------------------------------------------
 
     def _ensure_collection(self, drop: bool) -> None:
         if drop and utility.has_collection(self.collection_name):
@@ -263,7 +252,6 @@ class MilvusIngestor:
         except Exception:
             pass
 
-    # -- embedding ---------------------------------------------------------
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
         for attempt in range(3):
@@ -275,7 +263,6 @@ class MilvusIngestor:
                 time.sleep(2**attempt)
         return []
 
-    # -- rows --------------------------------------------------------------
 
     @staticmethod
     def _build_rows(chunks: list[Chunk], vectors: list[list[float]]) -> list[dict]:
@@ -296,37 +283,108 @@ class MilvusIngestor:
         return rows
 
 
-# ==========================================================================
-# Orchestrator
-# ==========================================================================
 
 
 def main():
-    print("=== Chunking JSON pages ===")
-    chunker = JSONChunker(data_dir=DATA_DIR)
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="JSON 页面分块，写入 BM25 和 Milvus"
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=DATA_DIR,
+        help="JSON 文件所在目录",
+    )
+    parser.add_argument(
+        "--bm25-index-dir",
+        type=Path,
+        default=BM25_INDEX_DIR,
+        help="BM25 索引输出目录",
+    )
+    parser.add_argument(
+        "--queries",
+        nargs="*",
+        default=["risk factor"],
+        help="BM25 检索测试用查询词",
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=3,
+        help="每个查询返回几条结果",
+    )
+    parser.add_argument(
+        "--milvus-uri",
+        default=MILVUS_URI,
+        help="Milvus 服务地址",
+    )
+    parser.add_argument(
+        "--milvus-collection",
+        default=MILVUS_COLLECTION,
+        help="Milvus 集合名",
+    )
+    parser.add_argument(
+        "--drop-collection",
+        action="store_true",
+        default=True,
+        help="写入前先清空已有集合",
+    )
+    parser.add_argument(
+        "--no-drop",
+        dest="drop_collection",
+        action="store_false",
+        help="不清空已有集合（追加写入）",
+    )
+    parser.add_argument(
+        "--no-bm25",
+        action="store_true",
+        help="跳过 BM25 建库和检索测试",
+    )
+    parser.add_argument(
+        "--no-milvus",
+        action="store_true",
+        help="跳过 Milvus 写入",
+    )
+    args = parser.parse_args()
+
+    print("=== 文档分块 ===")
+    chunker = JSONChunker(json_paths=args.data_dir)
     chunks = chunker.chunk_all()
     doc_count = len({c.metadata["doc_id"] for c in chunks})
-    print(f"  Produced {len(chunks)} chunks from {doc_count} documents")
+    print(f"  {doc_count} 个文档 → {len(chunks)} 个 chunk")
 
-    print("\n=== BM25 Ingestion ===")
-    bm25 = BM25Ingestor(BM25_INDEX_DIR)
-    n = bm25.ingest(chunks)
-    print(f"  Indexed {n} chunks to {BM25_INDEX_DIR}")
+    if not args.no_bm25:
+        print("\n=== BM25 建库 ===")
+        bm25 = BM25Ingestor(args.bm25_index_dir)
+        n = bm25.ingest(chunks)
+        print(f"  写入 {n} 个 chunk 到 {args.bm25_index_dir}")
 
-    print("\n=== BM25 Smoke Test ===")
-    for result in bm25.search("risk factor")[:3]:
-        meta = result["metadata"]
-        doc_id = meta.get("doc_id", "?")
-        page = meta.get("page_index", "?")
-        print(f"  [{doc_id}:p{page}] score={result['score']}  {result['text'][:120]}")
+        print("\n=== BM25 检索测试 ===")
+        for q in args.queries:
+            print(f'\n  查询：「{q}」')
+            results = bm25.search(q, top_k=args.top_k)
+            if not results:
+                print("  (无结果)")
+                continue
+            for r in results:
+                meta = r["metadata"]
+                doc_id = meta.get("doc_id", "?")
+                page = meta.get("page_index", "?")
+                print(f"  [{doc_id}:p{page}] score={r['score']}  {r['text'][:120]}")
 
-    print("\n=== Milvus Ingestion ===")
-    milvus = MilvusIngestor()
-    n = milvus.ingest(chunks, drop_existing=True)
-    print(f"  Inserted {n} rows into '{milvus.collection_name}'")
-    print(f"  Collection count: {milvus.count()}")
+    if not args.no_milvus:
+        print("\n=== Milvus 写入 ===")
+        milvus = MilvusIngestor(
+            uri=args.milvus_uri,
+            collection_name=args.milvus_collection,
+        )
+        n = milvus.ingest(chunks, drop_existing=args.drop_collection)
+        print(f"  写入 {n} 行到 '{milvus.collection_name}'")
+        print(f"  集合内记录数: {milvus.count()}")
 
-    print("\n=== Done ===")
+    print("\n=== 完成 ===")
 
 
 if __name__ == "__main__":

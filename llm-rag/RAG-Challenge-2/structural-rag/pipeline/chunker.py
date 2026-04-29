@@ -1,12 +1,15 @@
+import argparse
 import json
 import re
 from pathlib import Path
-from ingestion import BM25Ingestor
-from model import Chunk
+
+try:
+    from .model import Chunk
+except ImportError:
+    from model import Chunk
+
 
 HEADER_PATTERN = re.compile(r"^(#{1,6})\s", re.MULTILINE)
-IMAGE_REF_PATTERN = re.compile(r"^!\[.*\]\(.+\)$", re.MULTILINE)
-
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 MIN_CHUNK_CHARS = 200
 TARGET_CHUNK_CHARS = 800
@@ -14,9 +17,7 @@ NOISE_THRESHOLD = 50
 
 
 class JSONChunker:
-    """读取 JSON 文件，基于 Markdown 标题（``#`` 到 ``######``）边界拆分文本。
-    相邻过短的块会被合并；包含表格标记或表格前导文本的块标记为 ``chunk_type: "table"``。
-    """
+    """将提取的 JSON 页面切分为 Markdown 语块。"""
 
     def __init__(
         self,
@@ -29,97 +30,90 @@ class JSONChunker:
         self.target_chunk_chars = target_chunk_chars
 
     def chunk_all(self) -> list[Chunk]:
-        """处理所有 JSON 文件，并返回chunk lis"""
-        all_chunks: list[Chunk] = []
+        chunks: list[Chunk] = []
         for json_path in self._iter_json_files():
-            all_chunks.extend(self._chunk_json(json_path))
-        return all_chunks
+            chunks.extend(self._chunk_json(json_path))
+        return chunks
 
     def _iter_json_files(self) -> list[Path]:
-        """返回排序后的 JSON 文件列表"""
-        json_files = []
-        for json_path in sorted(self.json_paths.iterdir()):
-            for file in json_path.glob("*.json"):
-                json_files.append(file)
+        json_files: list[Path] = []
+        for json_dir in sorted(self.json_paths.iterdir()):
+            json_files.extend(sorted(json_dir.glob("*.json")))
         return json_files
 
     def _chunk_json(self, json_path: Path) -> list[Chunk]:
-        with open(json_path, encoding="utf-8") as fh:
-            data = json.load(fh)
+        with open(json_path, encoding="utf-8") as file:
+            data = json.load(file)
 
         doc_meta = data.get("document", {})
         doc_id = doc_meta.get("file_name", json_path.stem)
-        pages = data.get("pages", [])
 
         chunks: list[Chunk] = []
-        for page in pages:
-            page_chunks = self._chunk_page(page, doc_id, doc_meta)
-            chunks.extend(page_chunks)
+        for page in data.get("pages", []):
+            chunks.extend(self._chunk_page(page, doc_id, doc_meta))
         return chunks
 
     def _chunk_page(self, page: dict, doc_id: str, doc_meta: dict) -> list[Chunk]:
-        page_index = page.get("page_index")
-        text = page.get("text", "")
-        tables = page.get("tables", [])
-
-        segments = self._split_by_headers(text)
+        segments = self._split_by_headers(page.get("text", ""))
         if not segments:
             return []
 
-        chunks = self._build_chunks(segments, doc_id, doc_meta, page_index, tables)
+        chunks = self._build_chunks(
+            segments=segments,
+            doc_id=doc_id,
+            doc_meta=doc_meta,
+            page_index=page.get("page_index"),
+            tables=page.get("tables", []),
+        )
         merged = self._merge_short(chunks)
-        return [c for c in merged if self._is_substantive(c)]
+        return [chunk for chunk in merged if self._is_substantive(chunk)]
 
     def _split_by_headers(self, text: str) -> list[str]:
-        """正则表达式标题层级拆分文本，即#、##、###等。返回拆分后的文本片段列表。"""
         matches = list(HEADER_PATTERN.finditer(text))
         if not matches:
             stripped = text.strip()
-            return [stripped]
+            return [stripped] if stripped else []
 
         segments: list[str] = []
-        for i, match in enumerate(matches):
+        for index, match in enumerate(matches):
             start = match.start()
-            end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
             segment = text[start:end].strip()
             if segment:
                 segments.append(segment)
         return self._drop_noise_segments(segments)
 
     def _drop_noise_segments(self, segments: list[str]) -> list[str]:
-        """合并孤儿文本。"""
         cleaned: list[str] = []
-        prefix: str = ""
-        for seg in segments:
-            body = self._extract_body(seg)
+        prefix = ""
+
+        for segment in segments:
+            body = self._extract_body(segment)
             if len(body) < NOISE_THRESHOLD:
-                prefix = (prefix + "\n\n" + seg).strip() if prefix else seg
+                prefix = f"{prefix}\n\n{segment}".strip() if prefix else segment
+                continue
+
+            if prefix:
+                cleaned.append(f"{prefix}\n\n{segment}".strip())
+                prefix = ""
             else:
-                if prefix:
-                    cleaned.append((prefix + "\n\n" + seg).strip())
-                    prefix = ""
-                else:
-                    cleaned.append(seg)
+                cleaned.append(segment)
+
         if prefix and cleaned:
-            cleaned[-1] = (cleaned[-1] + "\n\n" + prefix).strip()
+            cleaned[-1] = f"{cleaned[-1]}\n\n{prefix}".strip()
         elif prefix:
             cleaned.append(prefix)
         return cleaned
 
     @staticmethod
     def _extract_body(text: str) -> str:
-        """返回去除标题行和图片引用后的 *text*。"""
-        lines = text.split("\n")
-        cleaned_text: list[str] = []
-        for line in lines:
-            stripped_text = line.strip()
-            if stripped_text.startswith("#"):
+        lines = []
+        for line in text.split("\n"):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or stripped.startswith("!["):
                 continue
-            if stripped_text.startswith("!["):
-                continue
-            if stripped_text:
-                cleaned_text.append(stripped_text)
-        return " ".join(cleaned_text)
+            lines.append(stripped)
+        return " ".join(lines)
 
     def _build_chunks(
         self,
@@ -130,20 +124,22 @@ class JSONChunker:
         tables: list[dict],
     ) -> list[Chunk]:
         chunks: list[Chunk] = []
-        table_texts = {t.get("table", "") for t in tables}
-        preamble_texts = {t.get("preamble", "") for t in tables}
+        table_texts = {table.get("table", "") for table in tables}
+        preamble_texts = {table.get("preamble", "") for table in tables}
 
         for segment in segments:
-            chunk_type = self._detect_chunk_type(segment, table_texts, preamble_texts)
             chunks.append(
                 Chunk(
                     text=segment,
                     metadata={
                         "doc_id": doc_id,
                         "page_index": page_index,
-                        "chunk_type": chunk_type,
+                        "chunk_type": self._detect_chunk_type(
+                            segment, table_texts, preamble_texts
+                        ),
                         "title": doc_meta.get("title"),
                         "author": doc_meta.get("author"),
+                        "company_name": doc_meta.get("company_name"),
                         "source": doc_meta.get("source"),
                     },
                 )
@@ -151,17 +147,15 @@ class JSONChunker:
         return chunks
 
     def _detect_chunk_type(self, text: str, table_texts: set[str], preamble_texts: set[str]) -> str:
-        """如果 *text* 与任意表格或前导文本相交，则返回 ``"table"``。"""
-        for tt in table_texts:
-            if tt and tt in text:
+        for table_text in table_texts:
+            if table_text and table_text in text:
                 return "table"
-        for pt in preamble_texts:
-            if pt and pt in text:
+        for preamble_text in preamble_texts:
+            if preamble_text and preamble_text in text:
                 return "table"
         return "text"
 
     def _merge_short(self, chunks: list[Chunk]) -> list[Chunk]:
-        "合并相邻短 chunk，累计达到 min_chunk_chars 才吐出，防止过短无检索意义。"
         if not chunks:
             return chunks
 
@@ -170,13 +164,13 @@ class JSONChunker:
 
         for chunk in chunks:
             pending.append(chunk)
-            if sum(len(c.text) for c in pending) >= self.min_chunk_chars:
+            if sum(len(item.text) for item in pending) >= self.min_chunk_chars:
                 merged.append(self._join(pending))
                 pending.clear()
 
         if pending:
             if merged and len(pending[0].text) < self.min_chunk_chars:
-                merged[-1] = self._join([merged[-1]] + pending)
+                merged[-1] = self._join([merged[-1], *pending])
             else:
                 merged.append(self._join(pending))
 
@@ -184,9 +178,7 @@ class JSONChunker:
 
     @staticmethod
     def _is_substantive(chunk: Chunk) -> bool:
-        """丢弃正文文本（不含标题和图片）过短的块。"""
         body = JSONChunker._extract_body(chunk.text)
-        # 如果包含表格，或文本足够长，则保留
         if chunk.metadata.get("chunk_type") == "table":
             return len(body) >= 10
         return len(body) >= NOISE_THRESHOLD
@@ -195,67 +187,38 @@ class JSONChunker:
     def _join(chunks: list[Chunk]) -> Chunk:
         if len(chunks) == 1:
             return chunks[0]
-        text = "\n\n".join(c.text for c in chunks)
-        meta = chunks[0].metadata.copy()
-        types = {c.metadata.get("chunk_type", "text") for c in chunks}
-        meta["chunk_type"] = "table" if "table" in types else "text"
-        return Chunk(text=text, metadata=meta)
+
+        metadata = chunks[0].metadata.copy()
+        chunk_types = {chunk.metadata.get("chunk_type", "text") for chunk in chunks}
+        metadata["chunk_type"] = "table" if "table" in chunk_types else "text"
+        return Chunk(text="\n\n".join(chunk.text for chunk in chunks), metadata=metadata)
 
 
-def main():
-    import argparse
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="将提取的 JSON 页面切分为语块。")
+    parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
+    return parser.parse_args()
 
-    from ingestion import BM25Ingestor
 
-    parser = argparse.ArgumentParser(
-        description="JSON 页面分块，可选运行 BM25 检索验证"
-    )
-    parser.add_argument(
-        "--data-dir",
-        type=Path,
-        default=DATA_DIR,
-        help="JSON 文件所在目录",
-    )
-    parser.add_argument(
-        "--bm25-index-dir",
-        type=Path,
-        default=DATA_DIR.parent / "pipeline" / "bm25_index",
-        help="BM25 索引输出目录",
-    )
-    parser.add_argument(
-        "--top-k",
-        type=int,
-        default=2,
-        help="每个查询返回几条结果",
-    )
-    parser.add_argument(
-        "--no-bm25",
-        action="store_true",
-        help="跳过 BM25 建库和检索测试",
-    )
-    args = parser.parse_args()
+def main() -> None:
+    args = parse_args()
 
-    chunker = JSONChunker(json_paths=args.data_dir)
-    chunks = chunker.chunk_all()
-
+    chunks = JSONChunker(json_paths=args.data_dir).chunk_all()
     if not chunks:
-        print("未生成任何 chunk，退出。")
+        print("No chunks found.")
         return
 
-    lengths = [len(c.text) for c in chunks]
+    lengths = [len(chunk.text) for chunk in chunks]
     types: dict[str, int] = {}
     for chunk in chunks:
-        chunk = chunk.metadata.get("chunk_type", "text")
-        types[chunk] = types.get(chunk, 0) + 1
+        chunk_type = chunk.metadata.get("chunk_type", "text")
+        types[chunk_type] = types.get(chunk_type, 0) + 1
 
-    print(f"文档数: {len({c.metadata['doc_id'] for c in chunks})}")
-    print(f"chunk 总数: {len(chunks)}")
-    print(f"按类型: {types}")
-    print(f"大小范围: min={min(lengths)}  max={max(lengths)}  avg={sum(lengths) // len(lengths)}")
+    print(f"Documents: {len({chunk.metadata['doc_id'] for chunk in chunks})}")
+    print(f"Chunks: {len(chunks)}")
+    print(f"Chunk types: {types}")
+    print(f"Length: min={min(lengths)} max={max(lengths)} avg={sum(lengths) // len(lengths)}")
 
-    if args.no_bm25:
-        return
-    BM25Ingestor()
 
 if __name__ == "__main__":
     main()

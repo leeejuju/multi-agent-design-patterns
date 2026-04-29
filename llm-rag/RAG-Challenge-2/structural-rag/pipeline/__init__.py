@@ -1,6 +1,7 @@
 from .chunker import JSONChunker
 from .ingestion import BM25Ingestor, MilvusIngestor
 from .model import Chunk, Document, PageChunks
+from .processor import QuestionProcessor
 
 __all__ = [
     "Document",
@@ -9,4 +10,5 @@ __all__ = [
     "JSONChunker",
     "BM25Ingestor",
     "MilvusIngestor",
+    "QuestionProcessor",
 ]

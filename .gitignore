@@ -47,6 +47,8 @@ htmlcov/
 outputs/
 results/
 cache/
+bm25_index/
+*.pkl
 
 # Model files
 *.pt

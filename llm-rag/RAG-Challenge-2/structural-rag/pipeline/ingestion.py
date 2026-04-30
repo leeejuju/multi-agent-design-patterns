@@ -37,9 +37,47 @@ OLLAMA_EMBEDDINGS_URL = f"{OLLAMA_BASE_URL.rstrip('/')}/api/embed"
 
 BM25_INDEX_DIR = Path(__file__).resolve().parent / "bm25_index"
 
+STOPWORDS = {
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "of",
+    "to",
+    "in",
+    "on",
+    "at",
+    "for",
+    "by",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "what",
+    "which",
+    "who",
+    "when",
+    "where",
+    "how",
+    "according",
+    "annual",
+    "report",
+    "period",
+    "last",
+    "end",
+    "data",
+    "available",
+    "return",
+}
+
+# BM25 分词规则：匹配小写字母数字词，支持连字符和撇号连接的复合词
 TOKEN_PATTERN = re.compile(r"[a-z0-9]+(?:[-'][a-z0-9]+)*")
-K1 = 1.5
-B = 0.75
+K1 = 1.5  # BM25 词频饱和系数
+B = 0.75  # BM25 长度归一化系数
 
 SCHEMA_FIELDS = [
     {
@@ -77,7 +115,7 @@ class BM25Ingestor:
 
     def search(self, query: str, top_k: int = 10) -> list[dict]:
         self._load()
-        terms = set(self._tokenize(query))
+        terms = {term for term in self._tokenize(query) if term not in STOPWORDS}
         if not terms or not self._corpus:
             return []
 
@@ -105,12 +143,26 @@ class BM25Ingestor:
         self._inverted.clear()
         self._avgdl = 1.0
 
+    @staticmethod
+    def _build_search_text(chunk: Chunk) -> str:
+        metadata = chunk.metadata
+        return "\n".join(
+            [
+                metadata.get("company_name") or "",
+                metadata.get("title") or "",
+                metadata.get("doc_id") or "",
+                chunk.text,
+            ]
+        )
+
     def _index_one(self, chunk: Chunk) -> None:
         chunk_id = chunk.metadata["chunk_id"]
-        tokens = self._tokenize(chunk.text)
+        search_text = self._build_search_text(chunk)
+        tokens = self._tokenize(search_text)
         self._corpus[chunk_id] = {"text": chunk.text, "metadata": chunk.metadata}
         self._doc_lengths[chunk_id] = len(tokens)
 
+        # 统计当前 chunk 的词频，构建倒排索引：term -> {chunk_id -> term_frequency}
         term_freqs: dict[str, int] = {}
         for token in tokens:
             term_freqs[token] = term_freqs.get(token, 0) + 1
@@ -119,6 +171,7 @@ class BM25Ingestor:
             self._inverted.setdefault(term, {})[chunk_id] = tf
 
     def _finalize(self) -> None:
+        # 计算语料库平均文档长度，BM25 长度归一化需要
         if not self._doc_lengths:
             self._avgdl = 1.0
             return
@@ -127,11 +180,13 @@ class BM25Ingestor:
         self._avgdl = max(avgdl, 1.0)
 
     def _idf(self, term: str) -> float:
+        # BM25 逆文档频率：包含该词的文档越少，IDF 越高
         doc_count = len(self._corpus)
         hit_count = len(self._inverted.get(term, {}))
         return math.log((doc_count - hit_count + 0.5) / (hit_count + 0.5) + 1)
 
     def _term_score(self, tf: int, doc_length: int) -> float:
+        # BM25 词频得分：对高频词做饱和处理，防止长文档天然高分
         numerator = tf * (K1 + 1)
         denominator = tf + K1 * (1 - B + B * doc_length / self._avgdl)
         return numerator / denominator
@@ -210,6 +265,7 @@ class MilvusIngestor:
         return Collection(self.collection_name).num_entities
 
     def _connect(self) -> None:
+        # 复用已有连接，避免重复创建；uri 变更时断开重建
         alias = "default"
         if connections.has_connection(alias):
             existing = connections.get_connection_addr(alias)
@@ -220,9 +276,9 @@ class MilvusIngestor:
             connections.connect(alias=alias, uri=self.uri, timeout=self.timeout)
             utility.get_server_version(timeout=self.timeout)
         except MilvusException as exc:
+            # 连接失败时给出明确提示，而不是抛出底层 MilvusException
             raise ConnectionError(
-                f"Cannot connect to Milvus at {self.uri}. Check MILVUS_URI, network access, "
-                "and whether Milvus is listening on port 19530."
+                f"无法连接到 Milvus {self.uri}，请检查 MILVUS_URI、网络及端口 19530 是否开放"
             ) from exc
 
     def _ensure_collection(self, drop_existing: bool) -> None:
@@ -255,6 +311,7 @@ class MilvusIngestor:
         raise ValueError(f"Unsupported embedding provider: {self.embedding_provider}")
 
     def _embed_with_dashscope(self, texts: list[str]) -> list[list[float]]:
+        # 指数退避重试（最多 3 次），应对临时网络波动和限流
         for attempt in range(3):
             try:
                 response = httpx.post(
@@ -274,9 +331,7 @@ class MilvusIngestor:
                 try:
                     response.raise_for_status()
                 except httpx.HTTPStatusError as exc:
-                    raise RuntimeError(
-                        f"Embedding request failed: {response.status_code} {response.text}"
-                    ) from exc
+                    raise RuntimeError(f"错了: {response.status_code} {response.text}") from exc
                 body = response.json()
                 vectors = [item["embedding"] for item in body["data"]]
                 self._validate_vectors(vectors)
@@ -314,6 +369,7 @@ class MilvusIngestor:
         return []
 
     def _validate_vectors(self, vectors: list[list[float]]) -> None:
+        # 校验向量维度与集合定义一致，否则插入 Milvus 会静默失败
         bad_dims = {len(vector) for vector in vectors if len(vector) != self.embedding_dim}
         if bad_dims:
             raise ValueError(

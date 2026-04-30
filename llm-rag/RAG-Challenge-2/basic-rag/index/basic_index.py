@@ -12,8 +12,8 @@ from pymilvus import MilvusClient
 
 basic_rag_dir = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(basic_rag_dir))
-sys.path.insert(0, str(basic_rag_dir / "embeding"))
-from embeding import create_client  # noqa: E402
+sys.path.insert(0, str(basic_rag_dir / "embedding"))
+from embedding import create_client  # noqa: E402
 from llm.providers import PROVIDERS  # noqa: E402
 
 load_dotenv()

@@ -27,8 +27,8 @@ except ImportError:
 
 basic_rag_dir = Path(__file__).resolve().parents[2] / "basic-rag"
 sys.path.insert(0, str(basic_rag_dir))
-sys.path.insert(0, str(basic_rag_dir / "embeding"))
-from embeding import create_client  # noqa: E402
+sys.path.insert(0, str(basic_rag_dir / "embedding"))
+from embedding import create_client  # noqa: E402
 
 EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "dashscope")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-v3")
@@ -40,8 +40,6 @@ RRF_K = 60
 
 @dataclass
 class SearchResult:
-    """混合检索流水线中的标准化检索命中。"""
-
     chunk_id: str
     text: str
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -54,7 +52,7 @@ class SearchResult:
 
 
 class QuestionProcessor:
-    """混合 RAG 处理器：BM25 + 向量检索 + 兄弟 Chunk 扩展。"""
+    """混合 RAG 处理器：BM25 + 向量检索（COSINE） +  完整 Chunk 扩展。"""
 
     def __init__(
         self,
@@ -96,8 +94,6 @@ class QuestionProcessor:
         self._embedding_client: Any = None
         self._llm: ChatOpenAI | None = None
 
-    # -- 懒加载属性 ---------------------------------------------------------------
-
     @property
     def bm25(self) -> BM25Ingestor:
         if self._bm25 is None:
@@ -133,8 +129,6 @@ class QuestionProcessor:
             self._llm = ChatOpenAI(**kwargs)
         return self._llm
 
-    # -- 公开 API ---------------------------------------------------------------
-
     def search(self, query: str) -> list[SearchResult]:
         """执行混合检索（BM25 + 向量），返回融合后的结果。"""
         bm25_hits = self._keyword_search(query)
@@ -155,15 +149,18 @@ class QuestionProcessor:
 
         chunks: list[dict] = []
         for r in results:
-            chunks.append(
-                {
-                    "chunk_id": r.chunk_id,
-                    "text": r.text,
-                    "metadata": r.metadata,
-                    "score": r.final_score,
-                    "source": r.source,
-                }
-            )
+            chunk = {
+                "chunk_id": r.chunk_id,
+                "text": r.text,
+                "metadata": r.metadata,
+                "score": r.final_score,
+                "source": r.source,
+            }
+            if r.rank_milvus >= 0:
+                chunk["cosine_similarity"] = r.milvus_score
+            if r.rank_bm25 >= 0:
+                chunk["bm25_score"] = r.bm25_score
+            chunks.append(chunk)
 
         prompt = build_prompt(query=query, kind=kind, top_k=len(chunks), chunks=chunks)
         response = await self.llm.ainvoke(prompt)
@@ -179,8 +176,6 @@ class QuestionProcessor:
 
     def __exit__(self, *args: Any) -> None:
         self.close()
-
-    # -- 关键词检索 --------------------------------------------------------------
 
     def _keyword_search(self, query: str) -> list[SearchResult]:
         raw = self.bm25.search(query, top_k=self.top_k)
@@ -198,8 +193,6 @@ class QuestionProcessor:
                 )
             )
         return results
-
-    # -- 向量检索 ---------------------------------------------------------------
 
     def _vector_search(self, query: str) -> list[SearchResult]:
         try:
@@ -244,8 +237,6 @@ class QuestionProcessor:
             )
         return results
 
-    # -- 分数融合 ---------------------------------------------------------------
-
     def _merge_results(
         self,
         bm25_hits: list[SearchResult],
@@ -265,6 +256,7 @@ class QuestionProcessor:
             else:
                 by_id[r.chunk_id] = r
 
+        # 保留 BM25 和 Milvus 两路召回，避免低向量分数误杀表格和关键词证据。
         merged = list(by_id.values())
 
         if self.merge_mode == "rrf":
@@ -309,8 +301,6 @@ class QuestionProcessor:
             norm_milvus = (result.milvus_score - milvus_min) / (milvus_max - milvus_min + 1e-9)
 
         return self.bm25_weight * norm_bm25 + self.milvus_weight * norm_milvus
-
-    # -- 兄弟 Chunk 扩展 --------------------------------------------------------
 
     def _expand_siblings(self, results: list[SearchResult]) -> list[SearchResult]:
         expanded: list[SearchResult] = []
@@ -381,14 +371,15 @@ class QuestionProcessor:
         return siblings
 
 
-# -- CLI --------------------------------------------------------------------
-
-
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="混合检索问答处理器。")
-    parser.add_argument("--query", required=True, help="用户问题")
+    parser = argparse.ArgumentParser(description="答案检索")
     parser.add_argument(
-        "--kind", required=True, choices=["number", "name", "names", "boolean"], help="问题类型"
+        "--query",
+        default="What was the largest single spending of CrossFirst Bank on executive compensation in USD?",
+        help="用户问题",
+    )
+    parser.add_argument(
+        "--kind", default="name", choices=["number", "name", "names", "boolean"], help="问题类型"
     )
     parser.add_argument("--top-k", type=int, default=TOP_K)
     parser.add_argument("--milvus-uri", default=MILVUS_URI)
@@ -427,8 +418,8 @@ async def main() -> None:
         rrf_k=args.rrf_k,
         bm25_weight=args.bm25_weight,
         milvus_weight=args.milvus_weight,
-    ) as qp:
-        result = await qp.ask(args.query, args.kind)
+    ) as question_processor:
+        result = await question_processor.ask(args.query, args.kind)
         print(result)
 
 

@@ -20,9 +20,9 @@
    - **小分块 (Child Chunk)**：针对语义点进行细粒度切分，用于高精度的向量命中。
 3. **元数据注入 (Metadata Injection)**：
    - 在每个分块中显式注入文章标题、当前章节名、公司/文档标识等元数据。
-   - 解决类似“Tradition 到底是指传统还是 Tradition 公司”这种语义歧义。
+   - 解决类似"Tradition 到底是指传统还是 Tradition 公司"这种语义歧义。
 4. **检索策略**：
-   - 命中 Child Chunk 时，自动回溯并获取其所属的 Parent Chunk 内容给 LLM，实现“精准检索，完整阅读”。
+   - 命中 Child Chunk 时，自动回溯并获取其所属的 Parent Chunk 内容给 LLM，实现"精准检索，完整阅读"。
 
 ---
 

@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -127,16 +128,16 @@ class JSONChunker:
         table_texts = {table.get("table", "") for table in tables}
         preamble_texts = {table.get("preamble", "") for table in tables}
 
-        for segment in segments:
+        for index, segment in enumerate(segments):
+            chunk_id = hashlib.sha1(f"{doc_id}-{page_index}-{index}-{segment}".encode()).hexdigest()
             chunks.append(
                 Chunk(
                     text=segment,
                     metadata={
                         "doc_id": doc_id,
+                        "chunk_id": chunk_id,
                         "page_index": page_index,
-                        "chunk_type": self._detect_chunk_type(
-                            segment, table_texts, preamble_texts
-                        ),
+                        "chunk_type": self._detect_chunk_type(segment, table_texts, preamble_texts),
                         "title": doc_meta.get("title"),
                         "author": doc_meta.get("author"),
                         "company_name": doc_meta.get("company_name"),

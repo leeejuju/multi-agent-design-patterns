@@ -22,7 +22,7 @@ PROVIDERS: dict[str, LLMProvider] = {
         name="dashscope",
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         api_key_env="DASHSCOPE_API_KEY",
-        default_model="qwen3.6-plus",
+        default_model="qwen3-max",
         recommended_models=(
             "qwen3.6-plus",
             "qwen3-max",

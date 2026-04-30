@@ -60,16 +60,7 @@ def main() -> None:
         bm25 = BM25Ingestor(args.bm25_index_dir)
         count = bm25.ingest(chunks)
         print(f"BM25 已索引 {count} 个 chunk，路径: {args.bm25_index_dir}。")
-
-        for query in args.queries:
-            print(f"\nBM25 查询: {query}")
-            for result in bm25.search(query, top_k=args.top_k):
-                metadata = result["metadata"]
-                doc_id = metadata.get("doc_id", "?")
-                page = metadata.get("page_index", "?")
-                text = result["text"].replace("\n", " ")[:120]
-                print(f"  [{doc_id}:p{page}] score={result['score']} {text}")
-
+        
     if not args.no_milvus:
         milvus = MilvusIngestor(
             uri=args.milvus_uri,

@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+#
+# Git commit-msg hook — validate Conventional Commits format.
+#
+# Accepts:  <type>(<scope>): <description>
+#           <type>: <description>
+#
+# Valid types: feat, fix, docs, style, refactor, test, chore, perf, ci, build, revert
+
+set -euo pipefail
+
+COMMIT_MSG_FILE="$1"
+
+# ---- read the first non-empty, non-comment line ----
+COMMIT_MSG=""
+while IFS= read -r line; do
+    # skip comments
+    [[ "$line" =~ ^# ]] && continue
+    # skip blank lines
+    [[ -z "$line" ]] && continue
+    COMMIT_MSG="$line"
+    break
+done < "$COMMIT_MSG_FILE"
+
+if [[ -z "$COMMIT_MSG" ]]; then
+    echo "ERROR: Empty commit message."
+    exit 1
+fi
+
+# ---- check merge / revert auto-generated messages (allow through) ----
+if [[ "$COMMIT_MSG" =~ ^Merge\  ]] || [[ "$COMMIT_MSG" =~ ^Revert\  ]]; then
+    exit 0
+fi
+
+# ---- Conventional Commits regex ----
+#   <type>      = feat|fix|docs|...
+#   (<scope>)   = optional, alphanumeric + hyphens
+#   : <desc>    = colon, single space, then description (>=1 char, no trailing period)
+PATTERN='^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\([a-zA-Z0-9._-]+\))?: .+[^.]$'
+
+if [[ ! "$COMMIT_MSG" =~ $PATTERN ]]; then
+    echo "============================================================"
+    echo "  COMMIT MESSAGE REJECTED"
+    echo "============================================================"
+    echo ""
+    echo "  Your message:"
+    echo "    $COMMIT_MSG"
+    echo ""
+    echo "  Required format (Conventional Commits):"
+    echo "    <type>(<scope>): <description>"
+    echo "    <type>: <description>"
+    echo ""
+    echo "  Valid types:"
+    echo "    feat | fix | docs | style | refactor | test"
+    echo "    chore | perf | ci | build | revert"
+    echo ""
+    echo "  Rules:"
+    echo "    - type is required"
+    echo "    - scope is optional, in (parentheses)"
+    echo "    - colon + single space before description"
+    echo "    - description must not be empty"
+    echo "    - description must not end with a period"
+    echo ""
+    echo "  Examples:"
+    echo "    feat: add commit-msg validation hook"
+    echo "    docs(rag): update retrieval module README"
+    echo "    fix: resolve empty result crash in vector search"
+    echo "    refactor(memory): extract storage layer"
+    echo "    chore: update pyproject.toml dependencies"
+    echo "============================================================"
+    exit 1
+fi
+
+exit 0

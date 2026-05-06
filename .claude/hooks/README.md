@@ -52,3 +52,35 @@ To enable system-level scheduling:
 - Auto-commit only stages and commits locally
 - Manual `git push` required to sync with remote
 - Designed to avoid merge conflicts by not auto-pushing
+
+## Commit-Msg Hook
+
+### Purpose
+Validates every commit message against Conventional Commits format before the commit is accepted.
+
+### Rules
+
+| Rule | Detail |
+|------|--------|
+| Required `<type>` | feat / fix / docs / style / refactor / test / chore / perf / ci / build / revert |
+| Optional `(<scope>)` | Module name in parentheses |
+| Separator `: ` | Colon + single space after type(scope) |
+| Non-empty description | At least one character after `: ` |
+| No trailing period | Description must not end with `.` |
+
+### Valid Examples
+```
+feat: add commit-msg validation hook
+docs(rag): update retrieval module README
+fix: resolve empty result crash in vector search
+refactor(memory): extract storage layer
+chore: update pyproject.toml dependencies
+```
+
+### Auto-Pass
+Messages starting with `Merge` or `Revert` bypass validation.
+
+### Setup (One-Time)
+```bash
+git config core.hooksPath .claude/hooks
+```

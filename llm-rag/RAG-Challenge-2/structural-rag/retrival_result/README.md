@@ -40,14 +40,6 @@ final_score: 0.0
 
 当前检索流程没有对 cosine similarity 做下限过滤：
 
-```python
-# processor.py _merge_results — 之前的代码
-merged = list(by_id.values())  # 不管 cosine 多少都保留
-```
-
-导致 cosine=0.031、0.0 的弱相关/不相关 chunk 也进入 LLM prompt。
-
-**已修复**：加了 `MIN_COSINE_SIMILARITY=0.25` 阈值，`_merge_results` 过滤掉不达标的 chunk。
 
 ### 2.3 Prompt 未充分利用检索质量信号
 
@@ -60,7 +52,6 @@ prompt 给了 LLM cosine_similarity、bm25_score、final_score，但没教它怎
 和 Hard Chunk 一样，当前检索是对全 Milvus collection 做向量搜索 + BM25 全文搜索：
 
 ```python
-# processor.py _vector_search
 hits = self.milvus_client.search(
     collection_name=self.milvus_collection,  # 全库
     data=[query_vector],

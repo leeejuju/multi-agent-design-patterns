@@ -1,169 +1,82 @@
-# DeepAgent 工程范式
+# DeepAgent 架构阅读笔记
 
-这里记录几种适合在当前项目中沉淀的 agent 工程范式。每种范式都优先描述最小可运行结构，避免提前引入复杂编排。
+这份笔记只关注 DeepAgent 系统中最核心的运行时设计，不展开太多细枝末节。
 
-## 1. Harness
+重点是理解它作为 Agent Harness 的工程组织方式：Agent 在运行前如何准备上下文，运行中如何管理状态，以及不同模型如何被约束到相对稳定的行为模式。
 
-Harness 是 agent 的执行外壳，用来把模型、工具、状态、日志和评测入口固定下来。
+## 核心分层
 
-适用场景：
+DeepAgent 主要可以拆成三个部分：
 
-- 需要反复运行同一个 agent 任务。
-- 需要稳定记录输入、输出、工具调用和错误。
-- 需要把 demo 代码整理成可测试、可复现的工程入口。
+1. `Backend`
+   - 定义运行时后端能力，例如 Shell 调用、Protocol 协议、Sandbox 和 State。
+   - 负责存储 Agent 运行时状态，并承载运行过程中产生的附属产物。
 
-最小结构：
+2. `Middleware`
+   - 主要承载模型调用前后的预处理和后处理。
+   - 在 LangChain 后续版本的 Agent 结构中，Middleware 是非常关键的扩展点。
 
-```text
-harness/
-  agent.py        # agent 定义
-  tools.py        # 可调用工具
-  state.py        # 任务状态
-  runner.py       # 命令行或脚本入口
-  evals.py        # 样例任务与验证逻辑
-```
+3. `Profiles`
+   - 面向不同模型定义 Harness 约束。
+   - 不同模型的行为模式并不一致，因此需要通过 Profile 做纠偏，让 Agent 运行规则更稳定。
 
-核心流程：
+回到 Harness 本身，这才是 DeepAgent 的核心意义：它不是只包装一次模型调用，而是组织一套可控的 Agent 运行环境。
 
-```text
-input -> build_context -> agent_step -> tool_call -> observe -> final_output
-```
+## 运行入口
 
-工程要点：
+整体入口在 `create_agent`。
 
-- `runner.py` 只负责装配和运行，不写业务逻辑。
-- 工具函数保持小而明确，返回结构化结果。
-- 状态对象记录任务进度、关键中间产物和错误信息。
-- eval 样例先覆盖关键路径，再补边界情况。
+这个入口会把运行时需要的模块组织起来，例如 `backend_factory`，并接入以下工具和协议：
 
-## 2. Research
+1. 协议部分：`protocol`、`backend_protocol`
+2. 文件系统：`file_system` middleware
+3. 内存管理：`memory` middleware
+4. 调用处理：`patch_to_calling` middleware
+5. 扩展能力：`skills` middleware
 
-Research 是面向资料检索、阅读、归纳和引用整理的 agent 范式。
+这些组件共同处理 Agent 运行前需要准备的行为和上下文信息。
 
-适用场景：
+## Backend：状态与工作区
 
-- 技术调研、论文阅读、竞品分析、资料汇总。
-- 需要把多个来源合并成结构化结论。
-- 需要明确区分事实、推断和待验证问题。
+Backend 是这套系统里很值得关注的一层。
 
-最小角色：
+在 Coding Agent 中，运行时上下文会持续产生很多状态。比如使用 `ls`、`read`、`grep` 等工具时，本质上都需要围绕当前工作区维护状态、文件信息和执行结果。
 
-- `Planner`：拆分研究问题，生成查询计划。
-- `Searcher`：检索候选资料。
-- `Reader`：提取关键事实、观点和证据。
-- `Synthesizer`：合并结论，输出报告。
+DeepAgent 在架构上把状态管理做了拆分：
 
-核心流程：
+- Agent 本身的运行流转状态是一类信息。
+- Agent 运行过程中产生的文件、命令结果、临时内容是另一类信息。
+- Backend 提供统一的工作区抽象，用来承载这些可读写、可查询、可路由的运行时资源。
 
-```text
-question -> research_plan -> search -> read -> notes -> synthesis -> report
-```
+所以 Backend 的价值不只是“保存东西”，而是给上层 Agent 和 Middleware 提供一套通用工具，例如 `ls`、`read` 等，让不同状态机都能复用同一套运行时能力。
 
-输出建议：
+其中 `Composite Backend` 可以理解为一个路由型 Backend：它把不同类型的行为请求分发到不同 Backend，再完成二次路由。
 
-```text
-summary
-key_findings
-evidence
-open_questions
-next_steps
-```
+## File System Middleware
 
-工程要点：
+File System 是 Coding Agent 中最常见的能力之一。
 
-- 每条结论尽量保留来源。
-- 把原始摘录和最终总结分开存储。
-- 对不确定内容显式标注为推断或待验证。
-- 避免让同一个 agent 同时负责搜索、判断和写最终报告。
+运行 Codex 或 Claude Code 这类工具时，最常用的其实就是文件检索和读取能力，例如：
 
-## 3. Text to Circle
+- `grep`
+- `ls`
+- `read`
 
-Text to Circle 是把自然语言输入转换为循环结构、闭环流程或圆形关系图的 agent 范式。
+这里有一个容易忽略的细节：列举文件时要处理 `symlink`。
 
-适用场景：
+`symlink` 是 symbolic link，也就是指向其他文件或目录的链接。它在文件系统里比较特殊，如果不加限制，可能导致遍历范围变得不可控。因此 DeepAgent 在文件列举阶段做了过滤，避免 Coding Agent 在文件系统访问上引入复杂风险。
 
-- 把文本需求整理成反馈闭环。
-- 把业务过程抽象为环状流程。
-- 把复杂说明转换成可视化节点和边。
+另一个值得注意的方法是 `perform string replacement`。
 
-最小结构：
+它主要用于控制写入或替换行为中的偏差。比如字符串替换时经常会遇到：
 
-```text
-text -> entities -> relations -> circle_model -> render_payload
-```
+1. 待替换目标不存在。
+2. 目标字符串有细微偏差，例如末尾位置不同，或者夹杂换行、空格等控制字符。
 
-推荐数据结构：
+这个方法的意义在于：让文件修改行为尽量保持确定，而不是直接交给模型自由生成整段文件内容。
 
-```python
-{
-    "title": "循环名称",
-    "nodes": [
-        {"id": "plan", "label": "计划"},
-        {"id": "act", "label": "执行"},
-        {"id": "observe", "label": "观察"},
-        {"id": "adjust", "label": "调整"},
-    ],
-    "edges": [
-        {"source": "plan", "target": "act"},
-        {"source": "act", "target": "observe"},
-        {"source": "observe", "target": "adjust"},
-        {"source": "adjust", "target": "plan"},
-    ],
-}
-```
+## 暂不展开的部分
 
-工程要点：
+代码里还涉及 LangSmith。
 
-- 先抽取节点，再判断边，最后补全闭环。
-- 节点数量保持克制，优先 4 到 8 个。
-- 如果文本不是闭环结构，先输出线性流程，再由 agent 判断是否能闭合。
-- 渲染层只消费结构化数据，不直接解析自然语言。
-
-## 4. Rough Loop
-
-Rough Loop 是快速草稿、评审、修订的迭代式 agent 范式。
-
-适用场景：
-
-- 写作、方案设计、代码草案、提示词优化。
-- 目标不完全明确，需要通过多轮粗糙产物收敛。
-- 希望先得到可用版本，再逐步提高质量。
-
-最小角色：
-
-- `Drafter`：生成第一版粗稿。
-- `Reviewer`：指出问题、缺口和风险。
-- `Reviser`：根据评审意见修订。
-- `Judge`：判断是否达到停止条件。
-
-核心流程：
-
-```text
-goal -> draft -> review -> revise -> judge -> final
-                    ^                  |
-                    |------------------|
-```
-
-停止条件：
-
-- 达到最大迭代次数。
-- `Judge` 判断输出已经满足目标。
-- 剩余问题不值得继续迭代。
-
-工程要点：
-
-- 第一版草稿可以粗糙，但必须完整。
-- Reviewer 只指出可执行问题，不写泛泛评价。
-- Reviser 只处理本轮评审意见，避免扩大范围。
-- 每轮保存 `draft`、`review`、`revision`，便于回放和调试。
-
-## 选型建议
-
-| 范式 | 主要目标 | 典型产物 |
-| --- | --- | --- |
-| Harness | 稳定运行与评测 | runner、日志、eval |
-| Research | 调研与综合 | notes、evidence、report |
-| Text to Circle | 文本到闭环结构 | nodes、edges、diagram payload |
-| Rough Loop | 迭代打磨 | draft、review、revision |
-
-优先从 Harness 开始，把运行入口和状态记录固定下来；其他范式可以作为 Harness 内部的具体任务形态逐步加入。
+由于 LangSmith 是 LangChain 自己的观测体系，并且商用场景会涉及收费，这里暂时不展开。当前笔记更关注 DeepAgent 自身的 Harness、Backend、Middleware 和文件系统设计。

@@ -54,9 +54,9 @@ DeepAgent 在架构上把状态管理做了拆分：
 
 ## File System Middleware
 
-File System 是 Coding Agent 中最常见的能力之一。
+File System 是 Coding Agent 中最常见的能力。
 
-运行 Codex 或 Claude Code 这类工具时，最常用的其实就是文件检索和读取能力，例如：
+运行 Codex、 Claude Code 这类工具，比较常见以下工具：
 
 - `grep`
 - `ls`
@@ -80,3 +80,8 @@ File System 是 Coding Agent 中最常见的能力之一。
 代码里还涉及 LangSmith。
 
 由于 LangSmith 是 LangChain 自己的观测体系，并且商用场景会涉及收费，这里暂时不展开。当前笔记更关注 DeepAgent 自身的 Harness、Backend、Middleware 和文件系统设计。
+
+
+
+
+

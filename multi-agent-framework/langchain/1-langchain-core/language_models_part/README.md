@@ -1,4 +1,4 @@
-# Language Models — 语言模型抽象层
+# Language Models — 模型抽象层
 
 > 本模块定义了 LangChain 中所有语言模型的标准接口。
 > 无论是 OpenAI、Anthropic、Qwen 还是本地模型，都必须遵循这套协议。
@@ -14,9 +14,7 @@ RunnableSerializable[Input, Output]      ← 加入序列化能力
     │   └── 继承了 Serializable（存盘/读盘）
     │   └── 继承了 Runnable（invoke/stream/batch）
     │
-BaseLanguageModel[LanguageModelOutputVar] ← 语言模型基类（泛型：输出类型）
-    │
-    ├── BaseLLM                           ← 文本补全模型（输入输出都是 str）
+BaseLanguageModel[LanguageModelOutputVar] ← 基础定义输入输出泛型
     │
     └── BaseChatModel                     ← 聊天模型（输入消息列表，输出 AIMessage）
         │
@@ -30,70 +28,54 @@ BaseLanguageModel[LanguageModelOutputVar] ← 语言模型基类（泛型：输�
 
 ## 🔑 核心概念
 
-### 1. `BaseLanguageModel` — 所有 LLM 的祖先
+### 1. `BaseLanguageModel` — Model的基基类，定义了模型所需的固定行为以及部分参数
+
+比如generate——prompt的行为以及一些cache以及token相关 (cache行为后面再说，相当重要的知识点)
 
 ```python
-class BaseLanguageModel(
-    RunnableSerializable[LanguageModelInput, LanguageModelOutputVar], ABC
-):
+class BaseLanguageModel(RunnableSerializable[LanguageModelInput, LanguageModelOutputVar], ABC):
 ```
 
 - `LanguageModelInput` — 输入类型，支持 `str`、`list[BaseMessage]`、`PromptValue`
 - `LanguageModelOutputVar` — 输出类型，被约束为 `AIMessage` 或 `str`
 
-### 2. `BaseChatModel` — 聊天模型基类
+### 2. `BaseChatModel` — 模型基类，所有langchain的适配都是走这个
 
 ```python
 class BaseChatModel(BaseLanguageModel[AIMessage], ABC):
+
+这里由于 Python 本身的问题，只说异步的，反正异步也是同步改过来的
+
+他异步生成的这一套经过的特别复杂的过程
+
+我只想吐槽，傻逼才用 py 的 AI SDK 去做 Agent 侧， 我真他妈被折磨的不行。
+
+我只说ainvoke 和 astream这部分。
+
+
+基本上是套了 N 多层的路径，导致了这么慢的执行速度，草泥马
+
+
+
+
+
+
+
+
+
+
 ```
 
-- 将输出类型固定为 `AIMessage`
-- 子类**必须实现** `_generate()` 方法（核心推理逻辑）
-- 子类**可选实现** `_stream()`、`_agenerate()` 等
+- 输出类型固定为 `AIMessage`
+- 和其他方法一样提供了异步和同步的方法
 
-| 必须实现 | 可选实现 |
-| :--- | :--- |
-| `_generate` — 核心推理 | `_stream` — 流式输出 |
-| `_llm_type` — 模型类型标识 | `_agenerate` — 异步推理 |
-| | `_astream` — 异步流式 |
 
-### 3. `RunnableSerializable` — 两大能力的融合
+### 3. `RunnableSerializable` 
 
 ```python
 class RunnableSerializable(Serializable, Runnable[Input, Output]):
 ```
 
-融合了两个父类的能力：
-
-| 来自 | 提供的能力 |
-| :--- | :--- |
-| **`Runnable`** | `invoke`、`stream`、`batch`、`\|` 管道组合 |
-| **`Serializable`** | `to_json()`、`lc_secrets`（密钥脱敏）、`lc_id`（唯一标识） |
 
 ---
 
-## ⚠️ 关于 Serializable 的注意事项
-
-继承了 `Serializable` **不代表自动可序列化**，子类必须显式开启：
-
-```python
-# 默认 False → 不可序列化
-@classmethod
-def is_lc_serializable(cls) -> bool:
-    return False  # 默认值
-
-# 子类手动开启
-@classmethod
-def is_lc_serializable(cls) -> bool:
-    return True   # 才能真正序列化
-```
-
-**设计原因**：防止包含 HTTP 客户端、API 密钥等敏感/不可序列化资源的对象被意外序列化。
-
----
-
-## 🔗 相关源码
-
-- `langchain_core/language_models/base.py` — `BaseLanguageModel` 定义
-- `langchain_core/language_models/chat_models.py` — `BaseChatModel` 定义
-- `langchain_core/load/serializable.py` — `Serializable` 定义

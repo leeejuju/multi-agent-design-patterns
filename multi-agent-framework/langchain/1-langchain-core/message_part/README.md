@@ -226,6 +226,64 @@ AI msg 是最最最核心的部分，Agent运行的上下文，基本都是这�
 
    但是你可以看到 AIMessageChunk 有一个特定的处理方法，因为它是涉及到流式输出的，所以需要连续add到初始的 message list 里面，不然也没法拼成一个整体的有效片段
 
+### 3.4 ToolMessages && ToolMessagesChunk && ToolCall && ToolCallChunk
+
+作为 AIMessages 的下位组件，承担着解耦和工具信息的聚合作用
+
+Toolcall的基本元素应该包括了 Tool 的 name, id, args, 
+
+ToolCallChunk 也是应用于 stream 场景下，连续输出时 Tool 消息的载体
+
+
+### 3.5 Content
+
+`content.py` 中集中定义了消息内容类：
+
+1. `Citation`
+2. `NonStandardAnnotation`
+3. `TextContentBlock`
+4. `ToolCall`
+5. `ToolCallChunk`
+6. `InvalidToolCall`
+7. `ServerToolCall`
+8. `ServerToolCallChunk`
+9. `ServerToolResult`
+10. `ReasoningContentBlock`
+11. `ImageContentBlock`
+12. `VideoContentBlock`
+13. `AudioContentBlock`
+14. `PlainTextContentBlock`
+15. `FileContentBlock`
+16. `NonStandardContentBlock`
+
+源码中的类型别名：
+
+```python
+Annotation = Citation | NonStandardAnnotation
+
+DataContentBlock = (
+    ImageContentBlock
+    | VideoContentBlock
+    | AudioContentBlock
+    | PlainTextContentBlock
+    | FileContentBlock
+)
+
+ToolContentBlock = (
+    ToolCall | ToolCallChunk | ServerToolCall | ServerToolCallChunk | ServerToolResult
+)
+
+ContentBlock = (
+    TextContentBlock
+    | InvalidToolCall
+    | ReasoningContentBlock
+    | NonStandardContentBlock
+    | DataContentBlock
+    | ToolContentBlock
+)
+```
+
+
 
 嗯，因为所有的东西都是从第一性原理去看的，所以说这些不是特别重要的东西我都不看了，本身也是结合开发过程中所看到的一些东西去分析
 

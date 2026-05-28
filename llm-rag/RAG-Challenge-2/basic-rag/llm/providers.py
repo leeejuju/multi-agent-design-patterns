@@ -25,6 +25,8 @@ PROVIDERS: dict[str, LLMProvider] = {
         default_model="qwen2.5-14b-instruct",
         recommended_models=(
             "qwen3.5-plus",
+            "qwen3.7-max",
+            "qwen3.6-plus",
             "qwen3-max",
             "qwen2.5-72b-instruct",
             "qwen2.5-32b-instruct",
@@ -32,8 +34,6 @@ PROVIDERS: dict[str, LLMProvider] = {
             "qwen2.5-7b-instruct",
             "qwen2-72b-instruct",
             "qwen2-7b-instruct",
-            "qwen-plus",
-            "qwen-turbo",
         ),
     ),
     "gemini": LLMProvider(
@@ -47,8 +47,8 @@ PROVIDERS: dict[str, LLMProvider] = {
         name="deepseek",
         base_url="https://api.deepseek.com",
         api_key_env="DEEPSEEK_API_KEY",
-        default_model="deepseek-chat",
-        recommended_models=("deepseek-chat", "deepseek-reasoner"),
+        default_model="deepseek-v4-pro",
+        recommended_models=("deepseek-v4-pro", "deepseek-v4-flash"),
     ),
     "siliconflow": LLMProvider(
         name="siliconflow",

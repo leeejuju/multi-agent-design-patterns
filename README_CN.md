@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-个人 LLM 学习知识库，涵盖智能体架构、框架源码阅读、RAG 检索策略、记忆系统与模型训练实验。
+个人 LLM 学习知识库，涵盖智能体架构、框架源码阅读笔记、RAG 检索策略、记忆系统与模型训练实验。
 
 ---
 
@@ -12,8 +12,8 @@
 .
 ├── multi-agent-design-patterns/   # 智能体设计模式实践
 │   └── lesson1_ordinary_agent/    #   BaseAgent/BaseContext 基础实现 + FastAPI + React 前端
-├── multi-agent-framework/         # 框架源码阅读与架构笔记
-│   ├── langchain/                 #   LangChain V1.0 核心源码解析（runnables、messages、tools 等）
+├── multi-agent-framework/         # 框架源码阅读笔记
+│   ├── langchain/                 #   阅读 LangChain V1.0 源码的思考笔记（runnables、messages、tools 等）
 │   ├── deepagent/                 #   DeepAgent harness 架构（backend / middleware / profile）
 │   ├── AgentScope/                #   AgentScope 多智能体框架
 │   ├── deer-flow/                 #   Deer-flow
@@ -51,9 +51,9 @@
 
 ## 主要模块说明
 
-### 智能体框架源码阅读（multi-agent-framework/）
+### 框架源码阅读笔记（multi-agent-framework/）
 
-对主流智能体框架的核心源码进行逐模块拆解与架构分析。以 LangChain 为重点：
+阅读主流智能体框架源码过程中的个人思考与记录，以 LangChain 为重点：
 - **langchain-core**：Runnable 协议、消息类型、工具接口、语言模型基类、序列化等底层抽象
 - **langgraph**：状态图、checkpoint、pregel 引擎等编排层
 - **deepagent**：harness 架构的三个核心分层（Backend / Middleware / Profiles）

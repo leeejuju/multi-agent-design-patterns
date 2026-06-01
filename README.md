@@ -2,7 +2,7 @@
 
 [中文版本](README_CN.md)
 
-A personal knowledge base for LLM learning — agent architectures, framework source reading, RAG strategies, memory systems, and model experiments.
+A personal knowledge base for LLM learning — agent architectures, framework reading notes, RAG strategies, memory systems, and model experiments.
 
 ---
 
@@ -12,8 +12,8 @@ A personal knowledge base for LLM learning — agent architectures, framework so
 .
 ├── multi-agent-design-patterns/   # Agent design pattern practice
 │   └── lesson1_ordinary_agent/    #   BaseAgent/BaseContext + FastAPI + React frontend
-├── multi-agent-framework/         # Framework source reading & architecture notes
-│   ├── langchain/                 #   LangChain V1.0 core analysis (runnables, messages, tools, etc.)
+├── multi-agent-framework/         # Framework reading notes
+│   ├── langchain/                 #   Reflections on reading LangChain V1.0 source (runnables, messages, tools, etc.)
 │   ├── deepagent/                 #   DeepAgent harness architecture (backend / middleware / profile)
 │   ├── AgentScope/                #   AgentScope multi-agent framework
 │   ├── deer-flow/                 #   Deer-flow
@@ -51,9 +51,9 @@ A personal knowledge base for LLM learning — agent architectures, framework so
 
 ## Key Modules
 
-### Framework Source Reading (`multi-agent-framework/`)
+### Framework Reading Notes (`multi-agent-framework/`)
 
-Module-by-module analysis of major agent frameworks, with LangChain as the primary focus:
+Personal reflections and notes from reading major agent framework source code, with LangChain as the primary focus:
 - **langchain-core**: Runnable protocol, message types, tool interfaces, language model base classes, serialization
 - **langgraph**: State graphs, checkpointing, Pregel engine
 - **deepagent**: Three-layer harness architecture (Backend / Middleware / Profiles)

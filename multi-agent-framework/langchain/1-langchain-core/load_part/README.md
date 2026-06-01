@@ -84,13 +84,12 @@ to_json
 
 
 
-
-
-
-
 我一开始想的时候，就在思考他序列化和反序列化的时候，为什么没有直接把 secret key 放到类属性里面一起进行序列化。
 
 后来看了 Revive 的实现，发现他那边又专门定义了一个字段，叫做 secrets_from_env。他的解释是：
 "Only include specific secrets that serializable objects require. If a secret is not found in the map, it will be loaded from environment."
 
-因为你在处理的时候，一般就是 secret_from_env。对于 false 的话，只传 secret_mac 嘛，然后这样的话你就可以避免恶意地去加载
+因为你在处理的时候，一般就是 secret_from_env。对于 false 的话，只传 secret_map 嘛，然后这样的话你就可以避免恶意地去加载
+
+
+最最重要的是要注意序列化和反序列化的一个重要的点

@@ -88,10 +88,4 @@ Comparative experiments on retrieval quality for professional long documents, ta
 
 ---
 
-## Tech Stack
-
-Python ≥3.13 · LangChain · LangGraph · DeepAgents · Milvus · pgvector · PyMuPDF · RAGAS · Pydantic · uv · Ruff
-
----
-
 *This is a personal learning repository. Most content is in Chinese, and some modules are still being populated.*

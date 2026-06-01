@@ -88,10 +88,4 @@
 
 ---
 
-## 技术栈
-
-Python ≥3.13 · LangChain · LangGraph · DeepAgents · Milvus · pgvector · PyMuPDF · RAGAS · Pydantic · uv · Ruff
-
----
-
 *本仓库为个人学习用途，部分模块仍在持续补充中。*

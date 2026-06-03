@@ -139,11 +139,84 @@ def _chain_async_tool_call_wrappers(
 2. 链式入参：执行时，B Middleware 的 wrap_to_call 会将 C Middleware 执行的结果作为入参。
 3. 迭代融合：它利用 `result = wrappers[-1]` 这种逻辑，将整个序列倒过来进行迭代，并使用 `compose_two` 方法将它们融合在一起。
 
-最终，这个过程会返回一个包含了完整执行顺序的套娃函数体
+最终，这个过程会返回一个包含了完整执行顺序的套娃函数体 类似 A(B(C(kwargs)))
 具体看这里：  # Chain all wrappers: first -> second -> ... -> last
     result = wrappers[-1]
     for wrapper in reversed(wrappers[:-1]):
-        result = compose_two(wrapper, result)
+        result = compose_two(wrapper, result) compose two的两个参数都是具体的 awarp_tool_call的
+
+
+
+# before/after agent/model
+middleware_w_before_agent = [
+        m
+        for m in middleware
+        if m.__class__.before_agent is not AgentMiddleware.before_agent
+        or m.__class__.abefore_agent is not AgentMiddleware.abefore_agent
+    ]
+    middleware_w_before_model = [
+        m
+        for m in middleware
+        if m.__class__.before_model is not AgentMiddleware.before_model
+        or m.__class__.abefore_model is not AgentMiddleware.abefore_model
+    ]
+    middleware_w_after_model = [
+        m
+        for m in middleware
+        if m.__class__.after_model is not AgentMiddleware.after_model
+        or m.__class__.aafter_model is not AgentMiddleware.aafter_model
+    ]
+    middleware_w_after_agent = [
+        m
+        for m in middleware
+        if m.__class__.after_agent is not AgentMiddleware.after_agent
+        or m.__class__.aafter_agent is not AgentMiddleware.aafter_agent
+    ]
+ps: 这下子我就想起来了，之前看到的所谓 middleware 执行的顺序问题，是先顺序后倒序出处是那里了，不过有偏差罢了
+
+
+if middleware_w_awrap_model_call:
+        async_handlers = [
+            traceable(name=f"{m.name}.awrap_model_call", process_inputs=_scrub_inputs)(
+                m.awrap_model_call
+            )
+            for m in middleware_w_awrap_model_call
+        ]
+        awrap_model_call_handler = _chain_async_model_call_handlers(async_handlers)
+model call 和 toolcall由于贯穿他们各自的执行周期，所以也是单独抽取出来的
+
+
+
+# state 抽取  和tool一致，从当前的agent 抽取工具后遍历中间件抽取所有的内容
+
+state_schemas: set[type] = {m.state_schema for m in middleware}
+# Use provided state_schema if available, otherwise use base AgentState
+base_state = state_schema if state_schema is not None else AgentState
+state_schemas.add(base_state)
+
+
+完事以上准备好了以后
+
+graph: StateGraph[
+        AgentState[ResponseT], ContextT, _InputAgentState, _OutputAgentState[ResponseT]
+    ] = StateGraph(
+        state_schema=resolved_state_schema,
+        input_schema=input_schema,
+        output_schema=output_schema,
+        context_schema=context_schema,
+    )
+直接就将所有的状态打包好开始构造初始的图
+
+从 factory.py 的 line 1365~1646 开始，都属于 langgraph 的 edge 构造
+
+把 middleware 的行为（before,after 那一套行为）都挂载成了边，
+
+我很好奇怪的是有几点，
+
+
+
+
+
 
 
 

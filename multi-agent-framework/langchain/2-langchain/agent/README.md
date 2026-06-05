@@ -35,6 +35,49 @@ create_agent 初始化的时候经历了这样的流程：
 3. 合并 System Prompt。初始化带入的时候，它会直接使用 LangChain 专属的 BaseMessage 继承的 SystemMessage 进行转换。
 4. 处理 Structured Output。
 
+
+## init_chat_model
+
+
+其它的 init_chat_model 方法下又提供了几个参数，主要有两个工程上比较重要：
+
+```python
+configurable_fields: Literal["any"] | list[str] | tuple[str, ...] | None = None
+config_prefix: str | None = None
+```
+
+字面意思就是：可配置/可变的模型变量，以及可配置模型的前缀。
+
+原文是：
+
+```text
+configurable_fields: Which model parameters are configurable at runtime.
+config_prefix: Useful when you have multiple configurable models in the same application.
+```
+
+模型运行时参数的可变，以及给模型上别名，会有很大的可玩空间。比如 A 模型欠费、宕机、不想用了，或者不同任务需要不同价格/类型的模型，就可以通过这种方式切换。
+
+不过 agent 更新之后有了 Middleware，也可以通过 request override 重写当前用的模型，我觉得这个更方便一点。
+
+config_prefix 就更不用说了。有了前缀，不同角色的 Agent 以及不同任务，可以通过前缀使用指定模型去处理。
+
+## structured_output
+
+规定了结构化输出的一堆格式：AutoStrategy、ProviderStrategy、ToolStrategy。
+
+主要是用于 response_format 的输出策略。
+
+AutoStrategy 选择最优的 response strategy，具体会在后续的代码中判断。
+
+ToolStrategy 官方是这样说的：
+
+> For models that don’t support native structured output, LangChain uses tool calling to achieve the same result. This works with all models that support tool calling.
+
+对于原生不支持结构化输出的模型，LangChain 会把这部分内容封装成 Tool Calling 的形式，去实现稳定的结构化 Response 效果。
+
+ProviderStrategy 是各大厂商自己的模型原生支持输出结构化结果。
+
+
 LangChain 本身规定了三种方式：
 
 1. tool strategy
@@ -209,56 +252,13 @@ graph: StateGraph[
 
 从 factory.py 的 line 1365~1646 开始，都属于 langgraph 的 edge 构造
 
-把 middleware 的行为（before,after 那一套行为）都挂载成了边，
+把 middleware 的行为（before,after 那一套行为）都挂载成了边
 
-我很好奇怪的是有几点，
+但是每个边是怎么安排的呢？并不是那么随意的，在很久之前，我刚刚接触 langgraph 这一套内容的时候
 
-
-
-
+会存在好几个点，condition_edage, tool_edage 等等，但是复杂 agent loop/harness 的场景，编排会如何？？
 
 
 
 
 
-
-
-
-
-其它的 init_chat_model 方法下又提供了几个参数，主要有两个工程上比较重要：
-
-```python
-configurable_fields: Literal["any"] | list[str] | tuple[str, ...] | None = None
-config_prefix: str | None = None
-```
-
-字面意思就是：可配置/可变的模型变量，以及可配置模型的前缀。
-
-原文是：
-
-```text
-configurable_fields: Which model parameters are configurable at runtime.
-config_prefix: Useful when you have multiple configurable models in the same application.
-```
-
-模型运行时参数的可变，以及给模型上别名，会有很大的可玩空间。比如 A 模型欠费、宕机、不想用了，或者不同任务需要不同价格/类型的模型，就可以通过这种方式切换。
-
-不过 agent 更新之后有了 Middleware，也可以通过 request override 重写当前用的模型，我觉得这个更方便一点。
-
-config_prefix 就更不用说了。有了前缀，不同角色的 Agent 以及不同任务，可以通过前缀使用指定模型去处理。
-
-## structured_output
-
-规定了结构化输出的一堆格式：AutoStrategy、ProviderStrategy、ToolStrategy。
-
-主要是用于 response_format 的输出策略。
-
-AutoStrategy 选择最优的 response strategy，具体会在后续的代码中判断。
-
-ToolStrategy 官方是这样说的：
-
-> For models that don’t support native structured output, LangChain uses tool calling to achieve the same result. This works with all models that support tool calling.
-
-对于原生不支持结构化输出的模型，LangChain 会把这部分内容封装成 Tool Calling 的形式，去实现稳定的结构化 Response 效果。
-
-ProviderStrategy 是各大厂商自己的模型原生支持输出结构化结果。

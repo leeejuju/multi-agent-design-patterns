@@ -258,6 +258,60 @@ graph: StateGraph[
 
 会存在好几个点，condition_edage, tool_edage 等等，但是复杂 agent loop/harness 的场景，编排会如何？？
 
+整个图如何编排的
+
+其实一般你看官方编排
+
+# TODO 此处填图
+
+比较符合惯性的思维
+
+
+
+
+他的 middleware 中，执行顺序是：before_agent -> before_model -> model
+
+行为是这样编排的，遍历出所有的 before/after, agent/model 后，挂上各自的 middleware 下的节点
+
+值得注意的一点是，他设置的 entry/exit node，以及 loop 的 entry/exit 
+
+
+
+他 entry 的顺序是这样的, 按照一般的 agent 执行逻辑触发
+
+agent 作为 model 的前置行为，会率先作为入口。
+
+# Loop and Tool (循环机制)
+
+
+
+对于 langchain 来说，其设计的是基于 loop 的循环
+
+其次是 tool 环节，无论是 harness 或者 agent 的 tool 实现多次循环调用是基操
+
+但是话又说回来，有的工具本身就是结果，不用反复迭代
+
+于是 langchain 在 BaseTool 类规定了 return_direct 参数
+
+True 时直接返回结果后，直接进入 END or after_agent 环节（ after agent 也是 model 执行后的一个环节）
+
+
+langchain 在设计时提供几套条件路径，
+
+tool 的 edage 走向给出了条件分支 after_agent, model， END， 条件就是以上的内容
+
+loop 的  走向三个节点，
+
+
+
+
+
+
+
+
+
+
+
 
 
 

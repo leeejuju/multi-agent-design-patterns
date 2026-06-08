@@ -381,7 +381,7 @@ def interrupt(value: Any) -> Any:
 
 interrupt 可以接受任意的类型，说明会有很多种的打断方式
 
-# 3. model call limit, model fall back, model retry
+# 3. model call limit
 
 这其实就不用说了，很明显的是为了模型执行服务的
 
@@ -393,9 +393,9 @@ This middleware monitors the number of model calls made during agent execution
 and can terminate the agent when specified limits are reached. It supports
 both thread-level and run-level call counting with configurable exit behaviors.
 
-监测中间件，检测 agent 执行周期内模型调用次数，并且次数到达上线后就断掉，同时支持 对话级别和运行级别的退出/终止机制
+这是个监测中间件，检测 agent 执行周期内模型调用次数，并且次数到达上线后就断掉，同时支持 对话级别和运行级别的退出/终止机制
 
-
+同时规定了当前中间件的隔离状态
 ···
 class ModelCallLimitState(AgentState[ResponseT]):
     """State schema for `ModelCallLimitMiddleware`.
@@ -470,4 +470,164 @@ def __init__(
         return None
 ···
 
-同时加了钩子函数 hook config 这个单纯给函数添加了个属性 即 can jump to
+同时加了钩子函数 hook config 这个单纯给所有函数添加了个属性 即 can jump to
+这一点就遵循 graph 构建时的 exit 路径，有 end 就走 end, 没有 end 就走 aftermodel
+本身 model call limit，这个 Middleware只是限制call 其实没什么好说的
+
+
+# 4. model fall back
+"""
+Automatic fallback to alternative models on errors.
+
+Retries failed model calls with alternative models in sequence until
+success or all models exhausted. Primary model specified in `create_agent`.
+
+简单来说就是自动 fallback。当模型访问发生错误时，系统会自动替换到其他 fallback 模型。
+
+如果你提供了多个 fallback，它就会按照顺序一直执行，直到其中一个有效，或者全部失败为止
+
+
+"""
+
+first_model: str | BaseChatModel,
+*additional_models: str | BaseChatModel, 这个也没有什么好说的
+
+# 5. model retry
+
+ """Middleware that automatically retries failed model calls with configurable backoff.Supports retrying on specific exceptions and exponential backoff.
+
+
+这玩意儿是说 ModelRetryMiddleware，这是一个重试中间件。
+
+这两个场景：
+
+1. 一些指定的，或者说指定的一个 exception
+2. 在指定的回调时间里，不断退避的时间 这种两个进行重 call 
+
+
+```
+def __init__(
+    self,
+    *,
+    max_retries: int = 2,
+    retry_on: RetryOn = (Exception,),
+    on_failure: OnFailure = "continue",
+    backoff_factor: float = 2.0,
+    initial_delay: float = 1.0,
+    max_delay: float = 60.0,
+    jitter: bool = True,
+) -> None:
+```
+
+提供了很多个参数，对于它的重试机制，其实有点意思。
+
+1. max_try：顾名思义，就是最多尝试几次。
+2. retry：也很简单，比如在发生什么样的情况时进行重试。
+
+而且它在 retry 的时候，提供了好几个类型，比如 error 和 continue
+
+然后就是关于 on_failure_retry 和 on_failure。
+
+其实我觉得它代表的是 behavior when all retries are exhausted。on_failure 说的就是当所有的 retry 次数耗尽的时候应该怎么做。
+
+它提供了三个选项：
+1. continue：跳过并继续，就像忽略 error 一样
+2. raise exception：抛出异常
+3. custom callable：可以自己去做一些截断处理
+
+
+
+我最最好奇的是它 decay 的机制。
+
+因为一般来说，我其实没有考虑那么深，通常可能会固定间隔一秒或两秒。但它不一样，它提供了四个参数，其中一个是 backoff factor（回退因子）。它是以 2 为底数，根据 retry 的次数来延长 retry 的时间间隔。
+
+
+然后它每次的 wait 时间长是 initial decay，然后乘以 backoff，然后是2次方的 retry number 
+
+initial_delay * (backoff_factor ** retry_number)
+
+
+然后他同时设置了 max decay，也是为了防止等待的时长无限延伸
+
+jitter: Whether to add random jitter (`±25%`) to delay to avoid thundering herd.
+
+设置了 Jitter。Jitter 在 CV 里面是一个颜色的抖动，它本身也是“抖动”的意思。
+
+它这样设计是为了保证在有 100 个或者更多请求时，这 100 个请求不会在同一时间间隔内全部打过来。可能就会是类似于好几个波次，比如说：
+1. 10秒有一波
+2. 20秒一波
+3. 30秒一波
+
+这类似于 Redis 在设置时，为了防止缓存雪崩和缓存穿透所做的处理。
+
+should_retry_exception
+
+另一个特点就是它的 retry_on 参数。
+
+关于 retry_on，它的逻辑是这样的：
+1. 处理逻辑：
+   它会根据 should_retry_exception 来判断。当发生 exception 时，它提供了一个函数来包装处理逻辑。
+   
+2. 类型判断：
+   retry_on 支持多种类型，它本身可以是一个 Callable（可调用对象），也可以是一个元组（tuple）。因此代码里做了一些判断：
+   (a) 如果 retry_on 是一个 Callable，它会直接调用这个函数去处理 exception。
+   (b) 如果它不是 Callable，那么它必须是一个元组。如果既不是 Callable 也不是元组，程序就会报错。
+   (c) 如果是元组，它还会进一步校验 exception 是否在元组定义的类型范围内。如果不是，同样会报错。
+
+
+
+
+calculate_delay然后他又看了一下 calculate_delay 函数。这个函数的主要作用是真正计算当前的 delay，它会根据之前的 backoff factor 和 jitter 等因素来计算。
+
+为了防止延迟过长，计算结果不能超过 max_delay 设定的 60 秒。
+
+if jitter and delay > 0:
+        jitter_amount = delay * 0.25  # ±25% jitter
+        delay += random.uniform(-jitter_amount, jitter_amount)  # noqa: S311
+        # Ensure delay is not negative after jitter
+        delay = max(0, delay)
+
+看了一下，它这个比较有意思：在当前存在 jitter 和 delay 的时候，它会先算一下当前 delay 的 25% 是多少，然后在 25% 的范围内对 delay 进行调整（可能增加也可能减少），最终返回的还是那个 delay
+
+# 6. tool_call_limiter, tool_emulator, tool_retry, tool_selection
+
+## 6.1 tool_call_limiter
+其实 tool call limit 在本质逻辑上和 model call limit 都是一样的。
+
+因为 tool 的行为在一定程度上与 model 的行为相似，它的执行其实也有上限，所以这部分我就不再赘述了。毕竟两者的行为一致，所以基本上代码书写的逻辑大概也是相似的
+
+## 6.2 tool_emulator
+我瞅了也没用啊，是测试工具的,在 mock 的时候会用到.主要就是用来测试的
+它在你使用 emulator（模拟器）去包裹一些 middleware 或者 tool 的时候，会拦截这些 tool 或 middleware 对模型的调用，并生成一个假的反馈给你，主要就是用来测试的
+
+## 6.3 tool_retry
+
+因为这个机制本身和 model try-catch 其实也是一致的，所以这个我就不说了，晚上吃的也不咸啊，咋这么渴
+
+## 6.4 tool_selection
+
+Uses an LLM to select relevant tools before calling the main model.
+
+    When an agent has many tools available, this middleware filters them down
+    to only the most relevant ones for the user's query. This reduces token usage
+    and helps the main model focus on the right tools.
+    
+顾名思义，ToolSelect 中间件的描述是：Use an LLM to select a relevant tool before calling the main model。
+
+也就是说，在执行主模型之前，先通过它来选择最适合的模型或最适合的工具。
+
+
+获取最近一轮的 user 消息，以及开发者自己固定的一些消息（比如一些 tool）。
+
+就比如说，在我处理某一项任务的时候，开发者会固定把这几个工具（比如 HIL，即 Human-in-the-loop）放在这里。因为这些部分其实会一直存在，所以他会将这些工具固定在这里边
+
+而且它主要是为了不去占位。因为你是固定的，固定的工具会始终存在，所以它就不会去占那个 Available tools.的站位，所以会在后边拼
+
+然后基本上这些
+
+# 7. summarization.
+
+这是一个需要思考的东西。因为在面试过程中，经常会问到压缩机制的问题：压缩的是什么，以及具体是怎么压缩的。
+
+针对这方面，我建议去看一下 CC 和 Codex 的源码。因为 CC 源码是泄露了的，Codex 是开源的，通过对比研究这两个项目的源码，基本上就能看出其中的端倪了。
+

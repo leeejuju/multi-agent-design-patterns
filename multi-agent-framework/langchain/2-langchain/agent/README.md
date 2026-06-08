@@ -254,6 +254,34 @@ base_state = state_schema if state_schema is not None else AgentState
 state_schemas.add(base_state)
 ```
 
+resolved_state_schema, input_schema, output_schema = _resolve_schemas(state_schemas)
+
+这里要提一句
+
+···
+
+类似 model_call_limit 中的 thread_model_call这种专属参数，为了避免污染 runtime 内容
+
+for hints in schema_hints.values():
+        for field_name, field_type in hints.items():
+            should_omit = False
+
+            if omit_flag:
+                metadata = _extract_metadata(field_type)
+                for meta in metadata:
+                    if isinstance(meta, OmitFromSchema) and getattr(meta, omit_flag) is True:
+                        should_omit = True
+                        break
+
+            if not should_omit:
+                all_annotations[field_name] = field_type
+
+    return TypedDict(schema_name, all_annotations)  # type: ignore[operator]
+
+将专属参数标定为 PrivateStateAttr， 同时 PrivateStateAttr 又是 OmitFromSchema 同时通过以上的函数实现了过滤
+···
+
+
 ## Graph 初始化
 
 完事以上准备好了以后

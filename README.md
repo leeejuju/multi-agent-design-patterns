@@ -1,6 +1,17 @@
+<div align="center">
+
 # multi-agent-design-patterns
 
+**古法时代与 AI 时代之间的学习笔记**  
+**Learning notes between the old craft era and the AI era**
+
 [中文版本](README_CN.md)
+
+</div>
+
+作为从“古法时代”走向 AI 时代的过渡学习者，Coding Agent 在观念上带来了巨大的冲击。但我仍更喜欢思考和探索的过程，而不是把思考外包给 AI。本仓库的大部分分析来自手写或口述，再借助 AI 进行讨论和整理。
+
+As someone growing through the transition from the old craft era to the AI era, coding agents have deeply reshaped my perspective. Still, I value the process of thinking and exploration over outsourcing thought to AI. Most analyses in this repository are handwritten or spoken first, with AI used mainly for discussion and organization.
 
 A personal knowledge base for LLM learning — agent architectures, framework reading notes, RAG strategies, memory systems, and model experiments.
 

@@ -23,7 +23,7 @@ Example: `uv run pytest -q multi-agent-framework/langchain/1-langchain-core/runn
 - Python version: `>=3.13`.
 - Ruff settings: line length `100`, double quotes, spaces for indentation.
 - Naming: `snake_case` for functions/files, `PascalCase` for classes, `UPPER_CASE` for constants.
-- When reading text files, assume they may contain Chinese content and read them explicitly as UTF-8.
+- When reading text files inside this repository/project, assume they may contain Chinese content and read them explicitly as UTF-8.
 - Design from first principles: start with the simplest version that satisfies the current requirement.
 - Do not add abstractions, defensive branches, extension points, or "just in case" code unless they are required now.
 - For business scripts and one-off workflows, write the smallest direct implementation that completes the task; do not add defensive compatibility layers unless the current data or caller requires them.

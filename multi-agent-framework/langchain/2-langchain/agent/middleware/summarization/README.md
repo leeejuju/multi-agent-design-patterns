@@ -113,7 +113,7 @@ const NO_TOOLS_PREAMBLE = `CRITICAL: Respond with TEXT ONLY. Do NOT call any too
 翻译过来是：
 
 ```
-注意注意：仅仅回答，不要调用工具（而且是什么都不能用）
+注意：仅仅回答，不要调用工具（而且是什么都不能用）
 你已经有当前对话所需的全部上下文
 tool call 不允许执行，而且这会直接导致失败（因为会waste 掉这一轮）
 这么说好奇怪

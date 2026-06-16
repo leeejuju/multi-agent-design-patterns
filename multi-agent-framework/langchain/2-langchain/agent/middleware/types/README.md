@@ -1,4 +1,7 @@
-# type.py (这里规定了 Middlewara 的一堆 meta 设计, 并且提供了已经内置其中的 agent/model 行为注解，方便)
+# type.py (这里规定了 Middlewara 的一堆 meta 设计, 主要是一堆的行为, 并且提供了已经内置其中的 agent/model 行为注解，方便)
+
+![type_define_image](images/type_define_image.png)
+
 
 这里提供注解是为了方便那些只需要用到单个be/af agent/model周期的行为但是不需要全套的情况
 
@@ -183,11 +186,11 @@ def before_agent(
 他会在你使用单注解的时候，用 func name 创建一个， 方便调试估计
 
 ## ModelRequest （model call 期间的重要参数， 具体就 warp_model_call ）
+
 Model request information for the agent.
 
 该函数实例化位于 graph invoke 的时候， 需要注意的只有 override 的时候， sys_msg 和 sys_prompt 不可以同时存在
 也是为了放置语义的不清吧
-
 
 ## ModelResponse 同理， 依旧只是存在于 wrap_model_call 的返回期间
 

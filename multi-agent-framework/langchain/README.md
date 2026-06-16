@@ -4,7 +4,3 @@
 
 截止 2025 年，LangChain 已从最初的大杂烩式工具集，进化为一个专注于 **构建可适应生态进化的 Agent 平台**。
 其核心理念已从“链（Chain）”全面升级为“智能体架构（Agent Architecture）”。
-
-
-
-Langchain的核心包
